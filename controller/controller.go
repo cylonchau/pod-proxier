@@ -41,12 +41,12 @@ type Controller struct {
 	handler    haproxy.HaproxyHandle
 }
 
-func newController(lister cache.Indexer, controller cache.Controller, queue workqueue.RateLimitingInterface) *Controller {
+func newController(lister cache.Indexer, controller cache.Controller, queue workqueue.RateLimitingInterface, user, pwd, host string) *Controller {
 	return &Controller{
 		lister:     lister,
 		controller: controller,
 		queue:      queue,
-		handler:    haproxy.NewHaproxyHandle("admin", "1fc917c7ad66487470e466c0ad40ddd45b9f7730a4b43e1b2542627f0596bbdc", "http://10.0.0.3:5555"),
+		handler:    haproxy.NewHaproxyHandle(user, pwd, host),
 	}
 }
 
@@ -157,7 +157,7 @@ func (c *Controller) Run(threadiness int, stopCh chan struct{}) {
 	klog.Info("Stopping pod proxy handler controller.")
 }
 
-func RunController() *Controller {
+func RunController(user, pwd, host string) *Controller {
 	var (
 		k8sconfig  *string //使用kubeconfig配置文件进行集群权限认证
 		restConfig *rest.Config
@@ -233,5 +233,5 @@ func RunController() *Controller {
 			}
 		},
 	}, cache.Indexers{})
-	return newController(indexer, controller, queue)
+	return newController(indexer, controller, queue, user, pwd, host)
 }
