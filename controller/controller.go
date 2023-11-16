@@ -1,21 +1,21 @@
 package controller
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/haproxytech/models"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
 
@@ -37,17 +37,43 @@ type server struct {
 type Controller struct {
 	lister     cache.Indexer
 	controller cache.Controller
-	queue      workqueue.RateLimitingInterface
-	handler    haproxy.HaproxyHandle
+	// controller的队列
+	queue         workqueue.RateLimitingInterface
+	handler       haproxy.HaproxyHandle
+	stopCh        chan struct{}
+	listenersLock sync.RWMutex
+	wg            wait.Group
+	// 延迟队列
+	aferqueue workqueue.RateLimitingInterface
 }
 
-func newController(lister cache.Indexer, controller cache.Controller, queue workqueue.RateLimitingInterface, user, pwd, host string) *Controller {
+func newController(lister cache.Indexer, controller cache.Controller, queue workqueue.RateLimitingInterface, user, pwd, host string, stopCh chan struct{}) *Controller {
 	return &Controller{
 		lister:     lister,
 		controller: controller,
 		queue:      queue,
 		handler:    haproxy.NewHaproxyHandle(user, pwd, host),
+		aferqueue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		stopCh:     stopCh,
 	}
+}
+
+func (c *Controller) defaultBackend() (encounterError error) {
+	sIns := c.handler.GetServers(BACKEND_PREFIX)
+	newServerIns := &haproxy.Server{
+		Name:    "default",
+		Address: "127.0.0.1:22",
+		Check:   "enabled",
+	}
+	if len(sIns) > 0 {
+		for _, v := range sIns {
+			_, encounterError = c.handler.ReplaceServerFromBackend(v.Name, newServerIns, BACKEND_PREFIX)
+		}
+	} else {
+		_, encounterError = c.handler.AddServerToBackend(newServerIns, BACKEND_PREFIX)
+
+	}
+	return
 }
 
 func (c *Controller) changeProxy(svrInt server) (encounterError error, b bool) {
@@ -55,14 +81,15 @@ func (c *Controller) changeProxy(svrInt server) (encounterError error, b bool) {
 	newServerIns := &haproxy.Server{
 		Name:    svrInt.serverName,
 		Address: svrInt.podAddr,
+		Check:   "enabled",
 	}
 	if len(sIns) > 0 {
 		for _, v := range sIns {
 			b, encounterError = c.handler.ReplaceServerFromBackend(v.Name, newServerIns, BACKEND_PREFIX)
 		}
-	}
-	if encounterError == nil {
+	} else {
 		b, encounterError = c.handler.AddServerToBackend(newServerIns, BACKEND_PREFIX)
+
 	}
 	return
 }
@@ -104,20 +131,28 @@ func (c *Controller) initHaproxy() (error, bool) {
 	return c.createProxy()
 }
 
-func (c *Controller) CreateTask(name string) error {
-	fmt.Println(name)
+func (c *Controller) QueryPodExists(name string) bool {
+	_, exists, err := c.lister.GetByKey(name)
+	if !exists || err != nil {
+		klog.Warningf("item %v not exists in cache.", name)
+		return false
+	}
+	return true
+}
+
+func (c *Controller) CreateMapping(name string, port int) error {
 	item, exists, err := c.lister.GetByKey(name)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		klog.Info(fmt.Sprintf("item %v not exists in cache.", item))
+		klog.Warningf("item %v not exists in cache.", name)
 		return fmt.Errorf("%s not fount.", name)
 	}
 	pod := item.(*v1.Pod)
 	srv := server{
 		serverName: SERVER_PREFIX + pod.Name + "." + pod.Status.PodIP,
-		podAddr:    pod.Status.PodIP + ":80",
+		podAddr:    fmt.Sprintf("%s:%d", pod.Status.PodIP, port),
 	}
 	error, _ := c.changeProxy(srv)
 	if error != nil {
@@ -137,44 +172,43 @@ func (c *Controller) handleError(key string) {
 	klog.Infof("Drop Object %s in queue", key)
 }
 
-func (c *Controller) Run(threadiness int, stopCh chan struct{}) {
+func (c *Controller) Run() {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
-	klog.Infof("Starting pod proxy handler controller.")
+	klog.V(2).Infof("Starting pod proxy handler controller.")
 
-	go c.controller.Run(stopCh)
+	go c.controller.Run(c.stopCh)
+	go c.runAfterQueue()
 
-	if !cache.WaitForCacheSync(stopCh, c.controller.HasSynced) {
+	if !cache.WaitForCacheSync(c.stopCh, c.controller.HasSynced) {
 		utilruntime.HandleError(fmt.Errorf("sync failed."))
 		return
 	}
 	e, _ := c.initHaproxy()
-	if e != nil && !strings.Contains(e.Error(), "already exists") {
-		fmt.Println(strings.Contains("already exists", e.Error()))
-		panic(e)
+	if e != nil {
+		if strings.Contains(e.Error(), "already exists") {
+			klog.Warningf("Inital failed: resource already exists %s", e.Error())
+		} else {
+			panic(e)
+		}
 	}
-	<-stopCh
-	klog.Info("Stopping pod proxy handler controller.")
+	<-c.stopCh
+	klog.V(2).Info("Stopping pod proxy handler controller.")
 }
 
-func RunController(user, pwd, host string) *Controller {
+func RunController(user, pwd, host string, k8sconfig string, stopCh chan struct{}) *Controller {
 	var (
-		k8sconfig  *string //使用kubeconfig配置文件进行集群权限认证
 		restConfig *rest.Config
 		err        error
 	)
-	if home := homedir.HomeDir(); home != "" {
-		k8sconfig = flag.String("kubeconfig", fmt.Sprintf("./admin.conf"), "kubernetes auth config")
-	}
-	k8sconfig = k8sconfig
-	flag.Parse()
-	if _, err := os.Stat(*k8sconfig); err != nil {
-		panic(err)
+
+	if _, err := os.Stat(k8sconfig); err != nil {
+		klog.V(2).Infof("%s, tryting in-cluster mode.", err.Error())
 	}
 
 	if restConfig, err = rest.InClusterConfig(); err != nil {
 		// 这里是从masterUrl 或者 kubeconfig传入集群的信息，两者选一
-		restConfig, err = clientcmd.BuildConfigFromFlags("", *k8sconfig)
+		restConfig, err = clientcmd.BuildConfigFromFlags("", k8sconfig)
 		if err != nil {
 			panic(err)
 		}
@@ -183,55 +217,47 @@ func RunController(user, pwd, host string) *Controller {
 	lister := cache.NewListWatchFromClient(restset.CoreV1().RESTClient(), "pods", v1.NamespaceAll, fields.Everything())
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	indexer, controller := cache.NewIndexerInformer(lister, &v1.Pod{}, time.Minute, cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			//fmt.Println("add ", obj.(*v1.Pod).GetName())
-			key, err := cache.MetaNamespaceKeyFunc(obj)
-			if err == nil {
-				queue.Add(key)
-			}
-
-		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			//fmt.Println("update", newObj.(*v1.Pod).GetName())
-			if newObj.(*v1.Pod).Status.Conditions[0].Status == "True" {
-				fmt.Println("update: the Initialized Status", newObj.(*v1.Pod).Status.Conditions[0].Status)
-			} else {
-				fmt.Println("update: the Initialized Status ", newObj.(*v1.Pod).Status.Conditions[0].Status)
-				fmt.Println("update: the Initialized Reason ", newObj.(*v1.Pod).Status.Conditions[0].Reason)
-			}
-
-			if len(newObj.(*v1.Pod).Status.Conditions) > 1 {
-				if newObj.(*v1.Pod).Status.Conditions[1].Status == "True" {
-					fmt.Println("update: the Ready Status", newObj.(*v1.Pod).Status.Conditions[1].Status)
-				} else {
-					fmt.Println("update: the Ready Status ", newObj.(*v1.Pod).Status.Conditions[1].Status)
-					fmt.Println("update: the Ready Reason ", newObj.(*v1.Pod).Status.Conditions[1].Reason)
-				}
-
-				if newObj.(*v1.Pod).Status.Conditions[2].Status == "True" {
-					fmt.Println("update: the PodCondition Status", newObj.(*v1.Pod).Status.Conditions[2].Status)
-				} else {
-					fmt.Println("update: the PodCondition Status ", newObj.(*v1.Pod).Status.Conditions[2].Status)
-					fmt.Println("update: the PodCondition Reason ", newObj.(*v1.Pod).Status.Conditions[2].Reason)
-				}
-
-				if newObj.(*v1.Pod).Status.Conditions[3].Status == "True" {
-					fmt.Println("update: the PodScheduled Status", newObj.(*v1.Pod).Status.Conditions[3].Status)
-				} else {
-					fmt.Println("update: the PodScheduled Status ", newObj.(*v1.Pod).Status.Conditions[3].Status)
-					fmt.Println("update: the PodScheduled Reason ", newObj.(*v1.Pod).Status.Conditions[3].Reason)
-				}
-			}
-
-		},
-		DeleteFunc: func(obj interface{}) {
-			//fmt.Println("delete ", obj.(*v1.Pod).GetName(), "Status ", obj.(*v1.Pod).Status.Phase)
-			// 上面是事件函数的处理，下面是对workqueue的操作
-			key, err := cache.MetaNamespaceKeyFunc(obj)
-			if err == nil {
-				queue.Add(key)
-			}
-		},
+		AddFunc:    func(obj interface{}) {},
+		UpdateFunc: func(oldObj, newObj interface{}) {},
+		DeleteFunc: func(obj interface{}) {},
 	}, cache.Indexers{})
-	return newController(indexer, controller, queue, user, pwd, host)
+	return newController(indexer, controller, queue, user, pwd, host, stopCh)
+}
+
+func (c *Controller) runAfterQueue() {
+	defer func() {
+		c.aferqueue.ShutDown()
+	}()
+	c.wg.Start(c.pop)
+	c.wg.Wait()
+}
+
+func (c *Controller) addAfter(notification string, t time.Duration) {
+	c.aferqueue.AddAfter(notification, t)
+}
+
+func (c *Controller) pop() {
+	klog.V(3).Info("Async event process started, waitting task...")
+	for {
+		select {
+		case <-c.stopCh:
+			klog.V(3).Info("Async evnet process exit.")
+			return
+		default:
+			notificationKey, quit := c.queue.Get()
+			if quit {
+				klog.Warningf("delay queue already exit.")
+				return
+			}
+			go func() {
+				var encounterError error
+				key := notificationKey.(string)
+				if encounterError = c.defaultBackend(); encounterError == nil {
+					c.queue.Done(key)
+					return
+				}
+				klog.V(3).Infof("Pod mapping end, %s", key)
+			}()
+		}
+	}
 }

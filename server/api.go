@@ -28,11 +28,7 @@ var (
 	ErrInvalidTransaction = &Errno{Code: 20004, Message: "invalid transaction"}
 
 	// NOTFOUNT
-	ErrRichNotFount    = &Errno{Code: 40004, Message: "The rich rules in the zone is empty"}
-	ErrServiceNotFount = &Errno{Code: 40004, Message: "The service in the zone is empty"}
-	ErrPortNotFount    = &Errno{Code: 40004, Message: "The port in the zone is empty"}
-	ErrZoneNotFount    = &Errno{Code: 40004, Message: "Not found the zone"}
-	ErrForwardNotFount = &Errno{Code: 40004, Message: "The Forward in the zone is empty"}
+	ErrNotFount = &Errno{Code: 40004, Message: "Not found the pod."}
 
 	// token errors
 	ErrEncrypt               = &Errno{Code: 50101, Message: "success"}
@@ -144,4 +140,13 @@ func APIResponse(ctx *gin.Context, err error, data interface{}) {
 		Msg:  message,
 		Data: data,
 	})
+}
+
+type ProxyQuery struct {
+	PodName string `form:"pod_name" json:"pod_name,omitempty" binding:"required"`
+}
+
+type ProxyMapping struct {
+	PodName     string `form:"pod_name" json:"pod_name,omitempty" binding:"required"`
+	ServicePort int    `form:"port" json:"port,omitempty" binding:"required"`
 }

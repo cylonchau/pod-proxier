@@ -9,34 +9,10 @@ func ping(c *gin.Context) {
 }
 
 func RegisteredRouter(e *gin.Engine) {
-	e.Handle("GET", "ping", ping)
-	e.Handle("GET", "proxier", create)
-}
+	e.Handle("GET", "health", ping)
+	v1API := e.Group("/api")
+	apiV1Group := v1API.Group("/v1")
 
-type ProxyQuery struct {
-	PodName string `form:"pod_name" json:"pod_name,omitempty" binding:"required"`
-}
-
-// reload ...
-// @Summary reload
-// @Produce  json
-// @Success 200 {object} internal.Response
-// @Router /fw/v3/setting/reload [POST]
-func create(context *gin.Context) {
-	// 1. 获取参数和参数校验
-	var enconterError error
-	proxyQuery := &ProxyQuery{}
-	enconterError = context.Bind(proxyQuery)
-
-	// 手动对请求参数进行详细的业务规则校验
-	if enconterError != nil {
-		APIResponse(context, enconterError, nil)
-		return
-	}
-
-	if enconterError = c.CreateTask(proxyQuery.PodName); enconterError != nil {
-		APIResponse(context, enconterError, nil)
-		return
-	}
-	SuccessResponse(context, OK, nil)
+	v1Paths := &V1{}
+	v1Paths.RegisterPortAPI(apiV1Group)
 }

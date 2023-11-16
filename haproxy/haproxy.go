@@ -98,7 +98,7 @@ func (h *HaproxyHandle) AddBackend(payload *models.Backend) (bool, error) {
 	}
 
 	resp := h.request.Path(url).Post().Body(body).Do(context.TODO())
-	
+
 	return handleError(&resp, payload)
 
 }
@@ -182,7 +182,6 @@ func (h *HaproxyHandle) DeleteBackend(backendName string) bool {
 	url := fmt.Sprintf("%s/%s?version=%d", BACKEND, url.QueryEscape(backendName), v)
 	resp := h.request.Path(url).Delete().Do(context.TODO())
 	b, _ := handleError(&resp, backendName)
-	fmt.Println(b)
 	return b
 }
 
@@ -209,8 +208,7 @@ func (h *HaproxyHandle) DeleteFrontend(frontendName string) bool {
 	url := fmt.Sprintf("%s/%s?version=%d", FRONTEND, url.QueryEscape(frontendName), v)
 	resp := h.request.Path(url).Delete().Do(context.TODO())
 	klog.V(3).Infof("Opeate delete frontend [%s]", frontendName)
-	b, err := handleError(&resp, frontendName)
-	fmt.Println(err)
+	b, _ := handleError(&resp, frontendName)
 	return b
 }
 
@@ -299,7 +297,6 @@ func (h *HaproxyHandle) AddServerToBackend(payload *Server, backendName string) 
 	defer h.mu.Unlock()
 	v := h.getVersion()
 	url := fmt.Sprintf("%s?parent_type=backend&parent_name=%s&version=%d", SERVER, url.QueryEscape(backendName), v)
-	fmt.Println(url)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		klog.Errorf("Failed to json convert Models.Server: %s\n", body)
