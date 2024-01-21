@@ -34,6 +34,36 @@ type server struct {
 	mode       string
 }
 
+func (p *Controller) RunAsyncProcess() {
+	defer func() {
+		p.asyncQueue.ShutDown()
+	}()
+	p.asyncWg.Start(p.pop)
+	p.asyncWg.Wait()
+}
+
+func (p *Controller) AddAfter(t time.Duration, event Event) {
+	p.asyncQueue.AddAfter(event, t)
+}
+
+func (p *Controller) pop() {
+	klog.V(4).Infof("Async event processor started, waitting task...")
+
+	for {
+		select {
+		case <-p.asyncStopCh:
+			klog.V(4).Infof("Async evnet process exit.")
+			return
+		default:
+			_, quit := p.queue.Get()
+			if quit {
+				return
+			}
+			p.DefaultMapping()
+		}
+	}
+}
+
 type Controller struct {
 	lister     cache.Indexer
 	controller cache.Controller
@@ -43,18 +73,38 @@ type Controller struct {
 	stopCh        chan struct{}
 	listenersLock sync.RWMutex
 	wg            wait.Group
+
+	asyncStopCh        chan interface{}
+	asyncAddCh         chan interface{}
+	asyncListenersLock sync.RWMutex
+	asyncWg            wait.Group
+	asyncQueue         workqueue.RateLimitingInterface
+
 	// 延迟队列
-	aferqueue workqueue.RateLimitingInterface
+	aferqueue      workqueue.RateLimitingInterface
+	controllerAddr string
+	controllerPort int
 }
 
-func newController(lister cache.Indexer, controller cache.Controller, queue workqueue.RateLimitingInterface, user, pwd, host string, stopCh chan struct{}) *Controller {
+func newController(lister cache.Indexer,
+	controller cache.Controller,
+	queue workqueue.RateLimitingInterface,
+	haproxyUser, haproxyPassword, harproxyHost string,
+	stopCh chan struct{},
+	addr string,
+	port int) *Controller {
 	return &Controller{
-		lister:     lister,
-		controller: controller,
-		queue:      queue,
-		handler:    haproxy.NewHaproxyHandle(user, pwd, host),
-		aferqueue:  workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
-		stopCh:     stopCh,
+		lister:         lister,
+		controller:     controller,
+		queue:          queue,
+		handler:        haproxy.NewHaproxyHandle(haproxyUser, haproxyPassword, harproxyHost),
+		aferqueue:      workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		controllerAddr: addr,
+		controllerPort: port,
+		stopCh:         stopCh,
+		asyncStopCh:    make(chan interface{}),
+		asyncAddCh:     make(chan interface{}),
+		asyncQueue:     workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 	}
 }
 
@@ -89,7 +139,6 @@ func (c *Controller) changeProxy(svrInt server) (encounterError error, b bool) {
 		}
 	} else {
 		b, encounterError = c.handler.AddServerToBackend(newServerIns, BACKEND_PREFIX)
-
 	}
 	return
 }
@@ -140,7 +189,7 @@ func (c *Controller) QueryPodExists(name string) bool {
 	return true
 }
 
-func (c *Controller) CreateMapping(name string, port int) error {
+func (c *Controller) CreateMapping(name string, port int, time time.Duration) error {
 	item, exists, err := c.lister.GetByKey(name)
 	if err != nil {
 		return err
@@ -159,18 +208,35 @@ func (c *Controller) CreateMapping(name string, port int) error {
 		klog.Error(error)
 		return error
 	}
+	c.AddAfter(time, Event{
+		Port: string(port),
+		Host: name,
+	})
 	return nil
 }
 
-func (c *Controller) handleError(key string) {
-
-	if c.queue.NumRequeues(key) < 3 {
-		c.queue.AddRateLimited(key)
-		return
+func (c *Controller) DefaultMapping() error {
+	srv := server{
+		serverName: APP_NAME_PREFIX + "pod-proxier",
+		podAddr:    fmt.Sprintf("%s:%d", c.controllerAddr, c.controllerPort),
 	}
-	c.queue.Forget(key)
-	klog.Infof("Drop Object %s in queue", key)
+	error, _ := c.changeProxy(srv)
+	if error != nil {
+		klog.Error(error)
+		return error
+	}
+	return nil
 }
+
+//func (c *Controller) handleError(key string) {
+//
+//	if c.queue.NumRequeues(key) < 3 {
+//		c.queue.AddRateLimited(key)
+//		return
+//	}
+//	c.queue.Forget(key)
+//	klog.Infof("Drop Object %s in queue", key)
+//}
 
 func (c *Controller) Run() {
 	defer utilruntime.HandleCrash()
@@ -178,7 +244,6 @@ func (c *Controller) Run() {
 	klog.V(2).Infof("Starting pod proxy handler controller.")
 
 	go c.controller.Run(c.stopCh)
-	go c.runAfterQueue()
 
 	if !cache.WaitForCacheSync(c.stopCh, c.controller.HasSynced) {
 		utilruntime.HandleError(fmt.Errorf("sync failed."))
@@ -187,7 +252,7 @@ func (c *Controller) Run() {
 	e, _ := c.initHaproxy()
 	if e != nil {
 		if strings.Contains(e.Error(), "already exists") {
-			klog.Warningf("Inital failed: resource already exists %s", e.Error())
+			klog.Warningf("Inital failed: %s", e.Error())
 		} else {
 			panic(e)
 		}
@@ -196,7 +261,13 @@ func (c *Controller) Run() {
 	klog.V(2).Info("Stopping pod proxy handler controller.")
 }
 
-func RunController(user, pwd, host string, k8sconfig string, stopCh chan struct{}) *Controller {
+func RunController(haproxyUser,
+	haproxyPassword,
+	harproxyHost string,
+	k8sconfig string,
+	stopCh chan struct{},
+	addr string,
+	port int) *Controller {
 	var (
 		restConfig *rest.Config
 		err        error
@@ -221,43 +292,13 @@ func RunController(user, pwd, host string, k8sconfig string, stopCh chan struct{
 		UpdateFunc: func(oldObj, newObj interface{}) {},
 		DeleteFunc: func(obj interface{}) {},
 	}, cache.Indexers{})
-	return newController(indexer, controller, queue, user, pwd, host, stopCh)
-}
-
-func (c *Controller) runAfterQueue() {
-	defer func() {
-		c.aferqueue.ShutDown()
-	}()
-	c.wg.Start(c.pop)
-	c.wg.Wait()
-}
-
-func (c *Controller) addAfter(notification string, t time.Duration) {
-	c.aferqueue.AddAfter(notification, t)
-}
-
-func (c *Controller) pop() {
-	klog.V(3).Info("Async event process started, waitting task...")
-	for {
-		select {
-		case <-c.stopCh:
-			klog.V(3).Info("Async evnet process exit.")
-			return
-		default:
-			notificationKey, quit := c.queue.Get()
-			if quit {
-				klog.Warningf("delay queue already exit.")
-				return
-			}
-			go func() {
-				var encounterError error
-				key := notificationKey.(string)
-				if encounterError = c.defaultBackend(); encounterError == nil {
-					c.queue.Done(key)
-					return
-				}
-				klog.V(3).Infof("Pod mapping end, %s", key)
-			}()
-		}
-	}
+	return newController(indexer,
+		controller,
+		queue,
+		haproxyUser,
+		haproxyPassword,
+		harproxyHost,
+		stopCh,
+		addr,
+		port)
 }

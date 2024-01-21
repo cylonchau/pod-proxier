@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -45,6 +47,10 @@ func (this *V1) create(context *gin.Context) {
 	if enconterError != nil {
 		APIResponse(context, enconterError, nil)
 		return
+	}
+
+	if time.Duration(proxyMappingQuery.Time) > time.Hour*3 {
+		proxyMappingQuery.Time = int(time.Duration(time.Hour * 3).Seconds())
 	}
 
 	if enconterError = ControllerInterface.CreateMapping(proxyMappingQuery.PodName, proxyMappingQuery.ServicePort); enconterError != nil {
