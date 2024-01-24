@@ -13,13 +13,13 @@ func ping(c *gin.Context) {
 }
 
 func versions(c *gin.Context) {
-	myFigure := figure.NewFigure("Pod Proxier", "", true)
+	myFigure := figure.NewFigure("BPT's Pod Proxier", "", true)
 	c.String(http.StatusOK, fmt.Sprintf("%s", myFigure.String()))
 }
 
 func RegisteredRouter(e *gin.Engine) {
 	e.Handle("GET", "health", ping)
-	e.Handle("GET", "default", versions)
+	e.Handle("GET", "/", versions)
 	v1API := e.Group("/api")
 	apiV1Group := v1API.Group("/v1")
 

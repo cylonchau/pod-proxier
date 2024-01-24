@@ -515,7 +515,6 @@ func handleError(response *restclient.Response, res interface{}) (bool, error) {
 	var log200, log201, log202, log204, log400, log409, log404 string
 	switch res.(type) {
 	case string:
-
 		log200 = fmt.Sprintf("The resource %s Successful operation.\n", res)
 		log202 = fmt.Sprintf("The resource %s Configuration change accepted.\n", res)
 		log204 = fmt.Sprintf("The resource %s deleted.\n", res)

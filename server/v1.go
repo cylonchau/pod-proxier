@@ -53,7 +53,7 @@ func (this *V1) create(context *gin.Context) {
 		proxyMappingQuery.Time = int(time.Duration(time.Hour * 3).Seconds())
 	}
 
-	if enconterError = ControllerInterface.CreateMapping(proxyMappingQuery.PodName, proxyMappingQuery.ServicePort); enconterError != nil {
+	if enconterError = ControllerInterface.CreateMapping(proxyMappingQuery.PodName, time.Duration(proxyMappingQuery.Time)); enconterError != nil {
 		APIResponse(context, enconterError, nil)
 		return
 	}

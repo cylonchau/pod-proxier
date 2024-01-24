@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	"pod-proxier/haproxy"
 )
@@ -35,6 +35,7 @@ type server struct {
 }
 
 func (p *Controller) RunAsyncProcess() {
+	klog.V(2).Info("Start asynchronous processing scheduled mapping.")
 	defer func() {
 		p.asyncQueue.ShutDown()
 	}()
@@ -43,19 +44,19 @@ func (p *Controller) RunAsyncProcess() {
 }
 
 func (p *Controller) AddAfter(t time.Duration, event Event) {
+	klog.V(2).Infof("Push server %s:%d to stack.", event.Host, event.Port)
 	p.asyncQueue.AddAfter(event, t)
 }
 
 func (p *Controller) pop() {
-	klog.V(4).Infof("Async event processor started, waitting task...")
-
+	klog.V(2).Info("Async event processor started, waitting task...")
 	for {
 		select {
 		case <-p.asyncStopCh:
-			klog.V(4).Infof("Async evnet process exit.")
+			klog.V(2).Info("Async evnet process exit.")
 			return
 		default:
-			_, quit := p.queue.Get()
+			_, quit := p.asyncQueue.Get()
 			if quit {
 				return
 			}
@@ -74,8 +75,7 @@ type Controller struct {
 	listenersLock sync.RWMutex
 	wg            wait.Group
 
-	asyncStopCh        chan interface{}
-	asyncAddCh         chan interface{}
+	asyncStopCh        chan struct{}
 	asyncListenersLock sync.RWMutex
 	asyncWg            wait.Group
 	asyncQueue         workqueue.RateLimitingInterface
@@ -84,27 +84,38 @@ type Controller struct {
 	aferqueue      workqueue.RateLimitingInterface
 	controllerAddr string
 	controllerPort int
+
+	// pod spec
+	DefaultMappingPort int
+	JprofilerPortName  string
+	MaxMappingTime     int
 }
 
 func newController(lister cache.Indexer,
 	controller cache.Controller,
 	queue workqueue.RateLimitingInterface,
-	haproxyUser, haproxyPassword, harproxyHost string,
 	stopCh chan struct{},
-	addr string,
-	port int) *Controller {
+	listenPort int,
+	listenAddr string,
+	dataplanHost, dataplanUser, dataplanPassword string,
+	defaultMappPort int,
+	jprofilerPortName string,
+	maxMapTime int,
+) *Controller {
 	return &Controller{
-		lister:         lister,
-		controller:     controller,
-		queue:          queue,
-		handler:        haproxy.NewHaproxyHandle(haproxyUser, haproxyPassword, harproxyHost),
-		aferqueue:      workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
-		controllerAddr: addr,
-		controllerPort: port,
-		stopCh:         stopCh,
-		asyncStopCh:    make(chan interface{}),
-		asyncAddCh:     make(chan interface{}),
-		asyncQueue:     workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		lister:             lister,
+		controller:         controller,
+		queue:              queue,
+		handler:            haproxy.NewHaproxyHandle(dataplanUser, dataplanPassword, dataplanHost),
+		aferqueue:          workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		controllerAddr:     listenAddr,
+		controllerPort:     listenPort,
+		stopCh:             stopCh,
+		asyncStopCh:        stopCh,
+		asyncQueue:         workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		DefaultMappingPort: defaultMappPort,
+		JprofilerPortName:  jprofilerPortName,
+		MaxMappingTime:     maxMapTime,
 	}
 }
 
@@ -150,8 +161,8 @@ func (c *Controller) createProxy() (encounterError error, b bool) {
 		bindName:     BIND_PREFIX,
 		mode:         "tcp",
 	}
-	checkTimeout := int64(1)
-	bindPort := int64(8849)
+	checkTimeout := int64(15)
+	bindPort := int64(c.controllerPort)
 	b, encounterError = c.handler.AddBackend(&models.Backend{
 		Name:         proxyInts.backendName,
 		Mode:         proxyInts.mode,
@@ -168,7 +179,7 @@ func (c *Controller) createProxy() (encounterError error, b bool) {
 				b, encounterError = c.handler.AddBind(&models.Bind{
 					Name:    proxyInts.bindName,
 					Port:    &bindPort,
-					Address: "0.0.0.0",
+					Address: c.controllerAddr,
 				}, proxyInts.frontendName)
 			}
 		}
@@ -189,7 +200,7 @@ func (c *Controller) QueryPodExists(name string) bool {
 	return true
 }
 
-func (c *Controller) CreateMapping(name string, port int, time time.Duration) error {
+func (c *Controller) CreateMapping(name string, delayTime time.Duration) error {
 	item, exists, err := c.lister.GetByKey(name)
 	if err != nil {
 		return err
@@ -199,6 +210,17 @@ func (c *Controller) CreateMapping(name string, port int, time time.Duration) er
 		return fmt.Errorf("%s not fount.", name)
 	}
 	pod := item.(*v1.Pod)
+	var port int
+	for _, container := range pod.Spec.Containers {
+		for _, p := range container.Ports {
+			if p.Name == c.JprofilerPortName {
+				port = int(p.ContainerPort)
+			}
+		}
+	}
+	if port == 0 {
+		port = c.DefaultMappingPort
+	}
 	srv := server{
 		serverName: SERVER_PREFIX + pod.Name + "." + pod.Status.PodIP,
 		podAddr:    fmt.Sprintf("%s:%d", pod.Status.PodIP, port),
@@ -208,8 +230,8 @@ func (c *Controller) CreateMapping(name string, port int, time time.Duration) er
 		klog.Error(error)
 		return error
 	}
-	c.AddAfter(time, Event{
-		Port: string(port),
+	c.AddAfter(delayTime*time.Second, Event{
+		Port: port,
 		Host: name,
 	})
 	return nil
@@ -228,22 +250,14 @@ func (c *Controller) DefaultMapping() error {
 	return nil
 }
 
-//func (c *Controller) handleError(key string) {
-//
-//	if c.queue.NumRequeues(key) < 3 {
-//		c.queue.AddRateLimited(key)
-//		return
-//	}
-//	c.queue.Forget(key)
-//	klog.Infof("Drop Object %s in queue", key)
-//}
-
 func (c *Controller) Run() {
+
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 	klog.V(2).Infof("Starting pod proxy handler controller.")
 
 	go c.controller.Run(c.stopCh)
+	go c.RunAsyncProcess()
 
 	if !cache.WaitForCacheSync(c.stopCh, c.controller.HasSynced) {
 		utilruntime.HandleError(fmt.Errorf("sync failed."))
@@ -261,25 +275,29 @@ func (c *Controller) Run() {
 	klog.V(2).Info("Stopping pod proxy handler controller.")
 }
 
-func RunController(haproxyUser,
-	haproxyPassword,
-	harproxyHost string,
-	k8sconfig string,
+func RunController(
 	stopCh chan struct{},
-	addr string,
-	port int) *Controller {
+	kubeconfig string,
+	listenAddr string,
+	listenPort int,
+	dataplanHost, dataplanUser, dataplanPassword string,
+	defaultMappPort int,
+	jprofilerPortName string,
+	maxMapTime int,
+	resyncTime int,
+) *Controller {
 	var (
 		restConfig *rest.Config
 		err        error
 	)
 
-	if _, err := os.Stat(k8sconfig); err != nil {
+	if _, err := os.Stat(kubeconfig); err != nil {
 		klog.V(2).Infof("%s, tryting in-cluster mode.", err.Error())
 	}
 
 	if restConfig, err = rest.InClusterConfig(); err != nil {
 		// 这里是从masterUrl 或者 kubeconfig传入集群的信息，两者选一
-		restConfig, err = clientcmd.BuildConfigFromFlags("", k8sconfig)
+		restConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 		if err != nil {
 			panic(err)
 		}
@@ -287,18 +305,25 @@ func RunController(haproxyUser,
 	restset, err := kubernetes.NewForConfig(restConfig)
 	lister := cache.NewListWatchFromClient(restset.CoreV1().RESTClient(), "pods", v1.NamespaceAll, fields.Everything())
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	indexer, controller := cache.NewIndexerInformer(lister, &v1.Pod{}, time.Minute, cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) {},
-		UpdateFunc: func(oldObj, newObj interface{}) {},
-		DeleteFunc: func(obj interface{}) {},
-	}, cache.Indexers{})
-	return newController(indexer,
+	indexer, controller := cache.NewIndexerInformer(
+		lister,
+		&v1.Pod{},
+		time.Duration(resyncTime)*time.Second,
+		cache.ResourceEventHandlerFuncs{
+			AddFunc:    func(obj interface{}) {},
+			UpdateFunc: func(oldObj, newObj interface{}) {},
+			DeleteFunc: func(obj interface{}) {},
+		}, cache.Indexers{})
+	return newController(
+		indexer,
 		controller,
 		queue,
-		haproxyUser,
-		haproxyPassword,
-		harproxyHost,
 		stopCh,
-		addr,
-		port)
+		listenPort,
+		listenAddr,
+		dataplanHost, dataplanUser, dataplanPassword,
+		defaultMappPort,
+		jprofilerPortName,
+		maxMapTime,
+	)
 }

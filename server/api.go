@@ -147,7 +147,6 @@ type ProxyQuery struct {
 }
 
 type ProxyMapping struct {
-	PodName     string `form:"pod_name" json:"pod_name,omitempty" binding:"required"`
-	ServicePort int    `form:"port" json:"port,omitempty" binding:"required"`
-	Time        int    `form:"time,default=60" json:"time,default=60"`
+	PodName string `form:"pod_name" json:"pod_name,omitempty" binding:"required"`
+	Time    int    `form:"time,default=60" json:"time,default=60"`
 }
