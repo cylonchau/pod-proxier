@@ -87,11 +87,11 @@ func NewProxyCommand() *cobra.Command {
 }
 
 func (o *PodProxier) AddFlags(fs *pflag.FlagSet) {
-	fs.IntVar(&o.Port, "listen port", DefaultPort, "serve port.")
-	fs.StringVar(&o.Addr, "listen address", DefaultAddr, "listen address.")
-	fs.StringVar(&o.DataPlanAPIAddr, "apiAddr", DefaultDataPlanAPIAddr, "dataplanapi addr.")
-	fs.StringVar(&o.DataPlanAPIUser, "apiUser", DefaultDataPlanAPIUser, "dataplanapi user.")
-	fs.StringVar(&o.DataPlanAPIPassword, "apiPass", DefaultDataPlanAPIPassword, "dataplanapi password.")
+	fs.IntVar(&o.Port, "listen-port", DefaultPort, "serve port.")
+	fs.StringVar(&o.Addr, "listen-addr", DefaultAddr, "listen address.")
+	fs.StringVar(&o.DataPlanAPIAddr, "api-addr", DefaultDataPlanAPIAddr, "dataplanapi addr.")
+	fs.StringVar(&o.DataPlanAPIUser, "api-user", DefaultDataPlanAPIUser, "dataplanapi user.")
+	fs.StringVar(&o.DataPlanAPIPassword, "api-password", DefaultDataPlanAPIPassword, "dataplanapi password.")
 	fs.StringVar(&o.Kubeconfig, "kubeconfig", DefaultKubeconfig, "kubernetes auth config.")
 	fs.IntVar(&o.DefaultMappingPort, "default-map-port", DefaultMappingPort, "haproxy default mapping port.")
 	fs.IntVar(&o.MaxMappingTime, "max-mapping-time", DefaultMaxMappingTime, "Max mapping time.")

@@ -119,24 +119,6 @@ func newController(lister cache.Indexer,
 	}
 }
 
-func (c *Controller) defaultBackend() (encounterError error) {
-	sIns := c.handler.GetServers(BACKEND_PREFIX)
-	newServerIns := &haproxy.Server{
-		Name:    "default",
-		Address: "127.0.0.1:22",
-		Check:   "enabled",
-	}
-	if len(sIns) > 0 {
-		for _, v := range sIns {
-			_, encounterError = c.handler.ReplaceServerFromBackend(v.Name, newServerIns, BACKEND_PREFIX)
-		}
-	} else {
-		_, encounterError = c.handler.AddServerToBackend(newServerIns, BACKEND_PREFIX)
-
-	}
-	return
-}
-
 func (c *Controller) changeProxy(svrInt server) (encounterError error, b bool) {
 	sIns := c.handler.GetServers(BACKEND_PREFIX)
 	newServerIns := &haproxy.Server{
@@ -162,7 +144,7 @@ func (c *Controller) createProxy() (encounterError error, b bool) {
 		mode:         "tcp",
 	}
 	checkTimeout := int64(15)
-	bindPort := int64(c.controllerPort)
+	bindPort := int64(c.DefaultMappingPort)
 	b, encounterError = c.handler.AddBackend(&models.Backend{
 		Name:         proxyInts.backendName,
 		Mode:         proxyInts.mode,
@@ -181,8 +163,16 @@ func (c *Controller) createProxy() (encounterError error, b bool) {
 					Port:    &bindPort,
 					Address: c.controllerAddr,
 				}, proxyInts.frontendName)
+
+				if encounterError == nil {
+					encounterError = c.DefaultMapping()
+				}
 			}
 		}
+	}
+	if encounterError != nil {
+		klog.Errorf("Initial default haproxy frontend error: %s", encounterError)
+		return
 	}
 	return
 }
@@ -240,7 +230,7 @@ func (c *Controller) CreateMapping(name string, delayTime time.Duration) error {
 func (c *Controller) DefaultMapping() error {
 	srv := server{
 		serverName: APP_NAME_PREFIX + "pod-proxier",
-		podAddr:    fmt.Sprintf("%s:%d", c.controllerAddr, c.controllerPort),
+		podAddr:    fmt.Sprintf("%s:%d", "127.0.0.1", c.controllerPort),
 	}
 	error, _ := c.changeProxy(srv)
 	if error != nil {

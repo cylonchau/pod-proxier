@@ -444,7 +444,7 @@ func (h *HaproxyHandle) replaceBind(oldName, frontendName string, new *models.Bi
 	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s&version=%d", BIND, url.QueryEscape(oldName), url.QueryEscape(frontendName), v)
 	body, err := json.Marshal(new)
 	if err != nil {
-		klog.Errorf("Failed to json convert Models.Bind: %s\n", body)
+		klog.Errorf("Failed to json convert Models.Bind: %s", body)
 		return false, err
 	}
 	klog.V(4).Infof("Opeate replace bind [%s] to [%s]", oldName, new.Name)
@@ -505,52 +505,51 @@ func GetLocalAddr(dev string) (addr net.IP, err error) {
 		}
 	}
 	if ipv4Addr == nil {
-		return net.IP{}, errors.New(fmt.Sprintf("interface %s don't have an ipv4 address\n", dev))
+		return net.IP{}, errors.New(fmt.Sprintf("interface %s don't have an ipv4 address", dev))
 	}
 	return ipv4Addr, nil
 }
 
 func handleError(response *restclient.Response, res interface{}) (bool, error) {
-
 	var log200, log201, log202, log204, log400, log409, log404 string
 	switch res.(type) {
 	case string:
-		log200 = fmt.Sprintf("The resource %s Successful operation.\n", res)
-		log202 = fmt.Sprintf("The resource %s Configuration change accepted.\n", res)
-		log204 = fmt.Sprintf("The resource %s deleted.\n", res)
-		log404 = fmt.Sprintf("The specified resource %s was not found\n", res)
+		log200 = fmt.Sprintf("The resource %s Successful operation.", res)
+		log202 = fmt.Sprintf("The resource %s Configuration change accepted.", res)
+		log204 = fmt.Sprintf("The resource %s deleted.", res)
+		log404 = fmt.Sprintf("The specified resource %s was not found", res)
 	case models.Bind:
 		var payload = res.(models.Bind)
-		log200 = fmt.Sprintf("The resource %s Successful operation.\n", payload.Name)
-		log202 = fmt.Sprintf("The resource %s Configuration change accepted.\n", payload.Name)
-		log201 = fmt.Sprintf("The resource %s created\n", payload.Name)
-		log400 = fmt.Sprintf("Bad request bind: %s\n", "bind", payload.Name)
-		log404 = fmt.Sprintf("The specified resource %s was not found \n", payload.Name)
-		log409 = fmt.Sprintf("The specified resource %s already exists.\n", payload.Name)
+		log200 = fmt.Sprintf("The resource %s Successful operation.", payload.Name)
+		log202 = fmt.Sprintf("The resource %s Configuration change accepted.", payload.Name)
+		log201 = fmt.Sprintf("The resource %s created", payload.Name)
+		log400 = fmt.Sprintf("Bad request bind: %s", "bind", payload.Name)
+		log404 = fmt.Sprintf("The specified resource %s was not found ", payload.Name)
+		log409 = fmt.Sprintf("The specified resource %s already exists.", payload.Name)
 	case models.Frontend:
 		var payload = res.(models.Frontend)
-		log200 = fmt.Sprintf("The resource %s Successful operation.\n", payload.Name)
-		log202 = fmt.Sprintf("The resource %s Configuration change accepted.\n", payload.Name)
-		log201 = fmt.Sprintf("The resource %s created\n", payload.Name)
-		log400 = fmt.Sprintf("Bad request frontend: %s\n", payload.Name)
-		log404 = fmt.Sprintf("The specified resource was not found %s\n", payload.Name)
-		log409 = fmt.Sprintf("The specified resource %s already exists.\n", payload.Name)
+		log200 = fmt.Sprintf("The resource %s Successful operation.", payload.Name)
+		log202 = fmt.Sprintf("The resource %s Configuration change accepted.", payload.Name)
+		log201 = fmt.Sprintf("The resource %s created", payload.Name)
+		log400 = fmt.Sprintf("Bad request frontend: %s", payload.Name)
+		log404 = fmt.Sprintf("The specified resource was not found %s", payload.Name)
+		log409 = fmt.Sprintf("The specified resource %s already exists.", payload.Name)
 	case models.Backend:
 		var payload = res.(models.Backend)
-		log200 = fmt.Sprintf("The resource %s Successful operation.\n", payload.Name)
-		log202 = fmt.Sprintf("The resource %s Configuration change accepted.\n", payload.Name)
-		log201 = fmt.Sprintf("The resource %s created\n", payload.Name)
-		log400 = fmt.Sprintf("Bad request backend: %s\n", payload.Name)
-		log404 = fmt.Sprintf("The specified resource was not found %s\n", payload.Name)
-		log409 = fmt.Sprintf("The specified resource %s already exists.\n", payload.Name)
+		log200 = fmt.Sprintf("The resource %s Successful operation.", payload.Name)
+		log202 = fmt.Sprintf("The resource %s Configuration change accepted.", payload.Name)
+		log201 = fmt.Sprintf("The resource %s created", payload.Name)
+		log400 = fmt.Sprintf("Bad request backend: %s", payload.Name)
+		log404 = fmt.Sprintf("The specified resource was not found %s", payload.Name)
+		log409 = fmt.Sprintf("The specified resource %s already exists.", payload.Name)
 	case Server:
 		var payload = res.(Server)
-		log202 = fmt.Sprintf("The resource %s Successful operation.\n", payload.Name)
-		log200 = fmt.Sprintf("The resource %s Configuration change accepted.\n", payload.Name)
-		log201 = fmt.Sprintf("The resource %s created\n", payload.Name)
-		log400 = fmt.Sprintf("Bad request server: %s\n", payload.Name)
-		log404 = fmt.Sprintf("The specified resource was not found %s\n", payload.Name)
-		log409 = fmt.Sprintf("The specified resource %s already exists.\n", payload.Name)
+		log202 = fmt.Sprintf("The resource %s Successful operation.", payload.Name)
+		log200 = fmt.Sprintf("The resource %s Configuration change accepted.", payload.Name)
+		log201 = fmt.Sprintf("The resource %s created", payload.Name)
+		log400 = fmt.Sprintf("Bad request server: %s", payload.Name)
+		log404 = fmt.Sprintf("The specified resource was not found %s", payload.Name)
+		log409 = fmt.Sprintf("The specified resource %s already exists.", payload.Name)
 	}
 	if response.Err == nil {
 		switch response.Code {

@@ -14,8 +14,7 @@ func main() {
 
 	command := server.NewProxyCommand()
 	flagset := flag.CommandLine
-	//klog.InitFlags(flagset)
-	klog.InitFlags(nil)
+	klog.InitFlags(flagset)
 	pflag.CommandLine.AddGoFlagSet(flagset)
 	if err := command.Execute(); err != nil {
 		os.Exit(1)

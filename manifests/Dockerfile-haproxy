@@ -1,0 +1,6 @@
+FROM haproxytech/haproxy-debian:2.6
+MAINTAINER cylon
+WORKDIR /usr/local/etc/haproxy
+COPY dataplaneapi.yaml /usr/local/etc/haproxy
+COPY haproxy.cfg /usr/local/etc/haproxy
+

@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: infra
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-proxier-secret-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pod-proxier-rolebinding
+subjects:
+  - kind: ServiceAccount
+    name: pod-proxier-secret-sa
+    namespace: infra
+roleRef:
+  kind: ClusterRole
+  name: pod-proxier-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: infra
+  name: pod-proxier-secret-sa
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-proxier
+  namespace: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pod-proxier
+  template:
+    metadata:
+      labels:
+        app: pod-proxier
+    spec:
+      serviceAccount: pod-proxier-secret-sa
+      hostNetwork: true
+      containers:
+        - name: por-proxier-ints
+          image: cylonchau/haproxy-debian:2.6.1
+          ports:
+          - containerPort: 8404
+          - containerPort: 5555
+          readinessProbe:
+            httpGet:
+              path: /stats
+              port: 8404
+            initialDelaySeconds: 2
+            periodSeconds: 60
+          livenessProbe:
+            httpGet:
+              path: /stats
+              port: 8404
+            initialDelaySeconds: 10
+            periodSeconds: 60
+        - name: pod-proxier
+          image: cylonchau/pod-proxier:0.4
+          ports:
+            - containerPort: 8848
+            - containerPort: 3343
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          command:
+            - "sh"
+            - "-c"
+            - |
+              sleep 30 &&
+              /apps/pod-proxier-gateway
+              --v 5
+              --jprofiler-port-name=test
+              --default-map-port=8848
+              --jprofiler-port-name=jprofiler
+              --resync-time=60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3343
+            initialDelaySeconds: 33
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3343
+            initialDelaySeconds: 10
+            periodSeconds: 60
