@@ -1,0 +1,32 @@
+{{- if .Values.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-proxier
+  namespace: {{ .Values.namespace }}
+  {{- if .Values.service.annotations }}
+  annotations:
+    {{- toYaml .Values.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if .Values.service.externalIPs }}
+  externalIPs:
+    {{- toYaml .Values.service.externalIPs | nindent 4 }}
+  {{- end }}
+  ports:
+    - port: {{ .Values.service.ports.admin.port }}
+      targetPort: {{ .Values.service.ports.admin.targetPort }}
+      protocol: {{ .Values.service.ports.admin.protocol }}
+      name: {{ .Values.service.ports.admin.name }}
+    - port: {{ .Values.service.ports.entry.port }}
+      targetPort: {{ .Values.service.ports.entry.targetPort }}
+      protocol: {{ .Values.service.ports.entry.protocol }}
+      name: {{ .Values.service.ports.entry.name }}
+    - port: {{ .Values.service.ports.podProxier.port }}
+      targetPort: {{ .Values.service.ports.podProxier.targetPort }}
+      protocol: {{ .Values.service.ports.podProxier.protocol }}
+      name: {{ .Values.service.ports.podProxier.name }}
+  selector:
+    app: pod-proxier
+  {{- end }}

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-proxier
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: pod-proxier
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: pod-proxier
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      hostNetwork: {{ .Values.hostNetwork }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      containers:
+        - name: pod-proxier-ints
+          image: {{ .Values.images.podProxierInts.repository }}:{{ .Values.images.podProxierInts.tag }}
+          imagePullPolicy: {{ .Values.images.podProxierInts.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.ports.adminPort }}
+              hostPort: {{ .Values.ports.adminPort }}
+              name: admin-port
+              protocol: TCP
+            - containerPort: {{ .Values.ports.dataPlanPort }}
+              name: data-plan-port
+              protocol: TCP
+            - containerPort: {{ .Values.ports.entryPort }}
+              hostPort: {{ .Values.ports.entryPort }}
+              name: entry-port
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.podProxierInts.readiness.path }}
+              port: {{ .Values.probes.podProxierInts.readiness.port }}
+            initialDelaySeconds: {{ .Values.probes.podProxierInts.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.podProxierInts.readiness.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.podProxierInts.liveness.path }}
+              port: {{ .Values.probes.podProxierInts.liveness.port }}
+            initialDelaySeconds: {{ .Values.probes.podProxierInts.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.podProxierInts.liveness.periodSeconds }}
+        - name: pod-proxier
+          image: {{ .Values.images.podProxier.repository }}:{{ .Values.images.podProxier.tag }}
+          imagePullPolicy: {{ .Values.images.podProxier.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.ports.podProxierPort }}
+          securityContext:
+            runAsNonRoot: {{ .Values.podProxier.securityContext.runAsNonRoot }}
+            runAsUser: {{ .Values.podProxier.securityContext.runAsUser }}
+          command:
+            - "sh"
+            - "-c"
+            - |
+              sleep 15 &&
+              /apps/pod-proxier-gateway
+              -v {{ .Values.logLevel }}
+              --listen-port={{ .Values.ports.podProxierPort }}
+              --listen-address=0.0.0.0
+              --default-map-port={{ .Values.ports.defaultMapPort }}
+              --jprofiler-port-name={{ .Values.ports.jprofilerPortName }}
+              --resync-time={{ .Values.podProxier.resyncTime }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.podProxier.readiness.path }}
+              port: {{ .Values.probes.podProxier.readiness.port }}
+            initialDelaySeconds: {{ .Values.probes.podProxier.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.podProxier.readiness.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.podProxier.liveness.path }}
+              port: {{ .Values.probes.podProxier.liveness.port }}
+            initialDelaySeconds: {{ .Values.probes.podProxier.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.podProxier.liveness.periodSeconds }}

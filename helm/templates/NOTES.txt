@@ -1,0 +1,11 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+To customize the deployment, edit the values.yaml file and update the nodeName, namespace, or other parameters as needed.
+
+To check the status of the deployment:
+  kubectl get pods -n {{ .Values.namespace }} -l app=pod-proxier
+
+To check the status of the service:
+  kubectl get svc -n {{ .Values.namespace }} pod-proxier

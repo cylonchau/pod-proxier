@@ -1,0 +1,85 @@
+replicaCount: 1
+namespace: infra
+# Specify the node name where the pod should run
+nodeName: ""
+hostNetwork: true
+logLevel: 5
+
+images:
+  podProxierInts:
+    repository: cylonchau/haproxy-debian
+    tag: v2.6.1
+    pullPolicy: IfNotPresent
+  podProxier:
+    repository: cylonchau/pod-proxier
+    tag: 0.5
+    pullPolicy: IfNotPresent
+
+ports:
+  adminPort: 8404
+  dataPlanPort: 5555
+  entryPort: 8849
+  podProxierPort: 3343
+  defaultMapPort: 8848
+  # Only this pod's port name can be proxied
+  jprofilerPortName: jprofiler-port
+
+probes:
+  podProxierInts:
+    readiness:
+      path: /stats
+      port: 8404
+      initialDelaySeconds: 2
+      periodSeconds: 60
+    liveness:
+      path: /stats
+      port: 8404
+      initialDelaySeconds: 10
+      periodSeconds: 60
+  podProxier:
+    readiness:
+      path: /health
+      port: 3343
+      initialDelaySeconds: 10
+      periodSeconds: 2
+    liveness:
+      path: /health
+      port: 3343
+      initialDelaySeconds: 10
+      periodSeconds: 60
+
+podProxier:
+  resyncTime: 600
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+
+serviceAccount: pod-proxier-secret-sa
+clusterRole: pod-proxier-secret-reader
+clusterRoleBinding: pod-proxier-rolebinding
+
+service:
+  enabled: false
+  type: LoadBalancer
+  # Specify external IPs for on-premises clusters, e.g., ["192.168.1.100"]
+  externalIPs: []
+  # Add cloud-specific annotations,
+  # e.g., {"service.beta.kubernetes.io/aws-load-balancer-type": "nlb"} for aws
+  # e.g., {"cloud.google.com/load-balancer-type": "Internal"} for gcp
+  annotations: {}
+  ports:
+    admin:
+      port: 8404
+      targetPort: 8404
+      protocol: TCP
+      name: admin-port
+    entry:
+      port: 8849
+      targetPort: 8849
+      protocol: TCP
+      name: entry-port
+    podProxier:
+      port: 3343
+      targetPort: 3343
+      protocol: TCP
+      name: pod-proxier-port
