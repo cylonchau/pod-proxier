@@ -3,18 +3,18 @@ package server
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
-
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"io/ioutil"
 	"k8s.io/klog/v2"
 
 	"pod-proxier/controller"
 )
 
 var (
-	ControllerInterface *controller.Controller
+	ControllerInterface        *controller.Controller
+	ServiceControllerInterface *controller.ServiceController
 )
 
 const (
@@ -28,6 +28,10 @@ const (
 	DefaultJprofilePortName    = "jprofiler_tcp"
 	DefaultMaxMappingTime      = 10800
 	DefaultResyncTime          = 10 * 60
+	DefaultPortRangeStart      = 9000
+	DefaultPortRangeEnd        = 9100
+	DefaultAllowedNamespaces   = "default"
+	DefaultPortName            = "debug"
 )
 
 func init() {
@@ -46,6 +50,14 @@ type PodProxier struct {
 	JprofilerPortName   string
 	MaxMappingTime      int
 	ResyncTime          int
+
+	// V2 功能参数
+	EnableV1          bool
+	EnableV2          bool
+	PortRangeStart    int
+	PortRangeEnd      int
+	PortName          string
+	AllowedNamespaces []string
 }
 
 func NewOptions() *PodProxier {
@@ -57,11 +69,15 @@ func NewProxyCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:  "",
-		Long: `The pod-proxier used for single pod proxy on kubernetes cluster.`,
+		Long: `The pod-proxier used for single pod proxy and service proxy on kubernetes cluster.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			PrintFlags(cmd.Flags())
 			if err := opts.Complete(); err != nil {
 				return fmt.Errorf("failed complete: %w", err)
+			}
+
+			if err := opts.Validate(); err != nil {
+				return fmt.Errorf("validation failed: %w", err)
 			}
 
 			if err := opts.Run(); err != nil {
@@ -81,12 +97,13 @@ func NewProxyCommand() *cobra.Command {
 
 	fs := cmd.Flags()
 	opts.AddFlags(fs)
-	fs.AddGoFlagSet(flag.CommandLine) // for --boot-id-file and --machine-id-file
+	fs.AddGoFlagSet(flag.CommandLine)
 	_ = cmd.MarkFlagFilename("config", "yaml", "yml", "json")
 	return cmd
 }
 
 func (o *PodProxier) AddFlags(fs *pflag.FlagSet) {
+	// 原有 v1 参数
 	fs.IntVar(&o.Port, "listen-port", DefaultPort, "serve port.")
 	fs.StringVar(&o.Addr, "listen-addr", DefaultAddr, "listen address.")
 	fs.StringVar(&o.DataPlanAPIAddr, "api-addr", DefaultDataPlanAPIAddr, "dataplanapi addr.")
@@ -97,6 +114,18 @@ func (o *PodProxier) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&o.MaxMappingTime, "max-mapping-time", DefaultMaxMappingTime, "Max mapping time.")
 	fs.IntVar(&o.ResyncTime, "resync-time", DefaultResyncTime, "Resync time from kubernetes cluster.")
 	fs.StringVar(&o.JprofilerPortName, "jprofiler-port-name", DefaultJprofilePortName, "Find the name of 'jprofiler' in the pod spec.")
+
+	// V2 功能参数
+	fs.BoolVar(&o.EnableV1, "enable-v1", false, "Enable v1 pod proxy functionality.")
+	fs.BoolVar(&o.EnableV2, "enable-v2", false, "Enable v2 service proxy functionality.")
+	fs.StringVar(&o.PortName, "port-name", DefaultPortName, "Specifiy port name, only this port can be mapping.")
+	fs.IntVar(&o.PortRangeStart, "port-range-start", DefaultPortRangeStart, "Start of port range for v2 service mapping.")
+	fs.IntVar(&o.PortRangeEnd, "port-range-end", DefaultPortRangeEnd, "End of port range for v2 service mapping.")
+
+	// 处理命名空间列表
+	fs.StringSliceVar(&o.AllowedNamespaces, "allowed-namespaces",
+		[]string{DefaultAllowedNamespaces},
+		"Comma-separated list of allowed namespaces for service proxy.")
 }
 
 func PrintFlags(flags *pflag.FlagSet) {
@@ -109,25 +138,74 @@ func (o *PodProxier) Complete() error {
 	return nil
 }
 
+func (o *PodProxier) Validate() error {
+	if !o.EnableV1 && !o.EnableV2 {
+		return fmt.Errorf("at least one of --enable-v1 or --enable-v2 must be specify")
+	}
+
+	if o.EnableV2 {
+		if o.PortRangeStart >= o.PortRangeEnd {
+			return fmt.Errorf("port-range-start must be less than port-range-end")
+		}
+
+		if o.PortRangeStart < 1024 || o.PortRangeEnd > 65535 {
+			return fmt.Errorf("port range must be between 1024 and 65535")
+		}
+
+		if len(o.AllowedNamespaces) == 0 {
+			return fmt.Errorf("allowed-namespaces cannot be empty when v2 is enabled")
+		}
+	}
+
+	return nil
+}
+
 func (o *PodProxier) Run() (err error) {
 	stopCh := make(chan struct{})
 	webserver := gin.New()
 	RegisteredRouter(webserver)
-	klog.Info("Starting pod proixer.")
-	ControllerInterface = controller.RunController(
-		stopCh,
-		o.Kubeconfig,
-		o.Addr,
-		o.Port,
-		o.DataPlanAPIAddr,
-		o.DataPlanAPIUser,
-		o.DataPlanAPIPassword,
-		o.DefaultMappingPort,
-		o.JprofilerPortName,
-		o.MaxMappingTime,
-		o.ResyncTime,
-	)
-	go ControllerInterface.Run()
+
+	klog.Infof("Starting pod proxier with V1=%t, V2=%t", o.EnableV1, o.EnableV2)
+
+	// 启动 V1 控制器 (Pod 代理)
+	if o.EnableV1 {
+		ControllerInterface = controller.RunController(
+			stopCh,
+			o.Kubeconfig,
+			o.Addr,
+			o.Port,
+			o.DataPlanAPIAddr,
+			o.DataPlanAPIUser,
+			o.DataPlanAPIPassword,
+			o.DefaultMappingPort,
+			o.JprofilerPortName,
+			o.MaxMappingTime,
+			o.ResyncTime,
+		)
+		go ControllerInterface.Run()
+		klog.Info("V1 Pod proxy controller started")
+	}
+
+	// 启动 V2 控制器 (Service 代理)
+	if o.EnableV2 {
+		ServiceControllerInterface = controller.RunServiceController(
+			stopCh,
+			o.Kubeconfig,
+			o.Addr,
+			o.Port,
+			o.DataPlanAPIAddr,
+			o.DataPlanAPIUser,
+			o.DataPlanAPIPassword,
+			o.PortRangeStart,
+			o.PortRangeEnd,
+			o.AllowedNamespaces,
+			[]string{o.PortName},
+			o.ResyncTime,
+		)
+		go ServiceControllerInterface.Run()
+		klog.Info("V2 Service proxy controller started")
+	}
+
 	klog.Infof("Listening and serving HTTP on %s:%d", o.Addr, o.Port)
 	if err = webserver.Run(fmt.Sprintf("%s:%d", o.Addr, o.Port)); err != nil {
 		return err
