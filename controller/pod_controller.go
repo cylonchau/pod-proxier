@@ -53,7 +53,7 @@ func (p *Controller) pop() {
 	for {
 		select {
 		case <-p.asyncStopCh:
-			klog.V(2).Info("Async evnet process exit.")
+			klog.V(2).Info("Async event process exit.")
 			return
 		default:
 			_, quit := p.asyncQueue.Get()
