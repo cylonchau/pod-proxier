@@ -1,7 +1,7 @@
 package haproxy
 
 import (
-	"github.com/haproxytech/models"
+	"github.com/haproxytech/models/v2"
 )
 
 type HaproxyInterface interface {

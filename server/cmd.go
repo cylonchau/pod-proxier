@@ -54,6 +54,7 @@ type PodProxier struct {
 	// V2 功能参数
 	EnableV1          bool
 	EnableV2          bool
+	HideBackend       bool
 	PortRangeStart    int
 	PortRangeEnd      int
 	PortName          string
@@ -121,6 +122,7 @@ func (o *PodProxier) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.PortName, "port-name", DefaultPortName, "Specifiy port name, only this port can be mapping.")
 	fs.IntVar(&o.PortRangeStart, "port-range-start", DefaultPortRangeStart, "Start of port range for v2 service mapping.")
 	fs.IntVar(&o.PortRangeEnd, "port-range-end", DefaultPortRangeEnd, "End of port range for v2 service mapping.")
+	fs.BoolVar(&o.HideBackend, "hide-backend", true, "If specified, hide backend information in stats page.")
 
 	// 处理命名空间列表
 	fs.StringSliceVar(&o.AllowedNamespaces, "allowed-namespaces",

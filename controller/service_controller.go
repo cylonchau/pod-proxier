@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/haproxytech/models"
+	models "github.com/haproxytech/models/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -291,16 +291,21 @@ func (c *ServiceController) removeServiceMappings(service *corev1.Service) {
 }
 
 // 创建服务代理配置
-func (c *ServiceController) createServiceProxy(service *corev1.Service, port corev1.ServicePort, mappedPort int, backendName, frontendName, bindName string) error {
+func (c *ServiceController) createServiceProxy(service *corev1.Service, port corev1.ServicePort, mappedPort int, backendName, frontendName, bindName string, hide bool) error {
 	checkTimeout := int64(15)
 	bindPortInt64 := int64(mappedPort)
 
 	// 创建Backend
-	_, err := c.handler.AddBackend(&models.Backend{
+	backend_obj := &models.Backend{
 		Name:         backendName,
 		Mode:         "tcp",
 		CheckTimeout: &checkTimeout,
-	})
+	}
+	if hide {
+		backend_obj.StatsOptions = &models.StatsOptions{StatsEnable: true}
+	}
+	_, err := c.handler.AddBackend(backend_obj)
+
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return fmt.Errorf("failed to create backend: %v", err)
 	}
