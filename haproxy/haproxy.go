@@ -13,7 +13,7 @@ import (
 	"time"
 
 	restclient "github.com/cylonchau/gorest"
-	"github.com/haproxytech/models"
+	models "github.com/haproxytech/models/v2"
 	json "github.com/json-iterator/go"
 	"github.com/shirou/gopsutil/v3/process"
 	"k8s.io/klog/v2"

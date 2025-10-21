@@ -2,7 +2,7 @@ package haproxy
 
 import (
 	"github.com/amit7itz/goset"
-	"github.com/haproxytech/models"
+	"github.com/haproxytech/models/v2"
 )
 
 const (
