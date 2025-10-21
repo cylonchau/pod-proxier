@@ -61,6 +61,8 @@ type ServiceController struct {
 	portAllocations    map[int]bool               // key: port, value: allocated
 	portAllocationLock sync.RWMutex
 
+	hideBackend bool
+
 	clientset *kubernetes.Clientset
 }
 
@@ -71,7 +73,10 @@ func newServiceController(
 	stopCh chan struct{},
 	listenPort int,
 	listenAddr string,
-	dataplanHost, dataplanUser, dataplanPassword string,
+	dataplanHost string,
+	dataplanUser string,
+	dataplanPassword string,
+	hideBackend bool,
 	portRangeStart, portRangeEnd int,
 	allowedNamespaces []string,
 	targetPortNames []string,
@@ -103,6 +108,7 @@ func newServiceController(
 		serviceMappings:   make(map[string]*ServiceMapping),
 		portAllocations:   make(map[int]bool),
 		clientset:         clientset,
+		hideBackend:       hideBackend,
 	}
 }
 
@@ -232,7 +238,7 @@ func (c *ServiceController) processService(service *corev1.Service) {
 		frontendName := fmt.Sprintf("SVC_FRONTEND_%s.%s:%d", service.Namespace, service.Name, mappedPort)
 		bindName := fmt.Sprintf("SVC_BIND_%s_%s_%s", service.Namespace, service.Name, port.Name)
 
-		if err := c.createServiceProxy(service, port, mappedPort, backendName, frontendName, bindName); err != nil {
+		if err := c.createServiceProxy(service, port, mappedPort, backendName, frontendName, bindName, c.hideBackend); err != nil {
 			klog.Errorf("Failed to create service proxy for %s: %v", mappingKey, err)
 			c.releasePort(mappedPort)
 			continue
@@ -399,6 +405,7 @@ func RunServiceController(
 	dataplanHost string,
 	dataplanUser string,
 	dataplanPassword string,
+	hideBackend bool,
 	portRangeStart int, portRangeEnd int,
 	allowedNamespaces []string,
 	targetPortNames []string,
@@ -431,7 +438,7 @@ func RunServiceController(
 
 	serviceController := newServiceController(
 		nil, nil, serviceQueue, stopCh, listenPort, listenAddr,
-		dataplanHost, dataplanUser, dataplanPassword,
+		dataplanHost, dataplanUser, dataplanPassword, hideBackend,
 		portRangeStart, portRangeEnd, allowedNamespaces, targetPortNames, clientset,
 	)
 

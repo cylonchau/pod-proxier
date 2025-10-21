@@ -1,4 +1,4 @@
-FROM haproxytech/haproxy-debian:2.6
+FROM haproxytech/haproxy-debian:2.7
 MAINTAINER cylon
 WORKDIR /usr/local/etc/haproxy
 COPY dataplaneapi.yaml /usr/local/etc/haproxy

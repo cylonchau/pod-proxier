@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/haproxytech/models"
+	models "github.com/haproxytech/models/v2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"

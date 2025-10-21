@@ -198,6 +198,7 @@ func (o *PodProxier) Run() (err error) {
 			o.DataPlanAPIAddr,
 			o.DataPlanAPIUser,
 			o.DataPlanAPIPassword,
+			o.HideBackend,
 			o.PortRangeStart,
 			o.PortRangeEnd,
 			o.AllowedNamespaces,
