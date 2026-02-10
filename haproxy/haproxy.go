@@ -23,12 +23,20 @@ var _ HaproxyInterface = &HaproxyHandle{}
 
 type HaproxyHandle struct {
 	localAddr string
-	request   *restclient.Request
+	host      string
+	user      string
+	password  string
 	mu        sync.Mutex
 }
 
 func (h *HaproxyHandle) EnsureHaproxy() bool {
 	return true
+}
+
+func (h *HaproxyHandle) newRequest() *restclient.Request {
+	req := restclient.NewDefaultRequest().BasicAuth(h.user, h.password).Host(h.host)
+	req.AddHeader("Content-Type", "application/json")
+	return req
 }
 
 func (h *HaproxyHandle) EnsureFrontendBind(bindName, frontendName string) bool {
@@ -37,7 +45,7 @@ func (h *HaproxyHandle) EnsureFrontendBind(bindName, frontendName string) bool {
 	// return all bind fields of frontend
 	url := fmt.Sprintf("%s/%s?parent_type=frontend&parent_name=%s", BIND, url.QueryEscape(bindName), url.QueryEscape(frontendName))
 
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	if resp.Err != nil {
 		klog.Error(resp.Err)
 		return false
@@ -54,7 +62,7 @@ func (h *HaproxyHandle) EnsureFrontendBind(bindName, frontendName string) bool {
 // ensure
 func (h *HaproxyHandle) EnsureBackend(backendName string) bool {
 	url := fmt.Sprintf("%s/%s", BACKEND, url.QueryEscape(backendName))
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	klog.V(4).Infof("Opeate query backend %s", backendName)
 	exist, _ := handleError(&resp, backendName)
 	return exist
@@ -62,7 +70,7 @@ func (h *HaproxyHandle) EnsureBackend(backendName string) bool {
 
 func (h *HaproxyHandle) EnsureFrontend(frontendName string) bool {
 	url := fmt.Sprintf("%s/%s", FRONTEND, url.QueryEscape(frontendName))
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	klog.V(4).Infof("Opeate query backend %s", frontendName)
 	exist, _ := handleError(&resp, frontendName)
 	return exist
@@ -70,8 +78,8 @@ func (h *HaproxyHandle) EnsureFrontend(frontendName string) bool {
 
 func (h *HaproxyHandle) EnsureServer(serverName, backendName string) bool {
 	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?version=%d", SERVER, url.QueryEscape(serverName), url.QueryEscape(backendName), v)
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	url := fmt.Sprintf("%s/%s?parent_type=backend&parent_name=%s&version=%d", SERVER, url.QueryEscape(serverName), url.QueryEscape(backendName), v)
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	klog.V(4).Infof("Opeate query server %s", serverName)
 	exist, _ := handleError(&resp, backendName+":"+serverName)
 	return exist
@@ -80,7 +88,7 @@ func (h *HaproxyHandle) EnsureServer(serverName, backendName string) bool {
 func (h *HaproxyHandle) ensureOneBind(bindName, frontendName string) (exist bool, err error) {
 	v := h.getVersion()
 	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s&version=%d", BIND, url.QueryEscape(bindName), url.QueryEscape(frontendName), v)
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	klog.V(4).Infof("Opeate get one bind %s", bindName)
 	return handleError(&resp, bindName)
 }
@@ -97,7 +105,7 @@ func (h *HaproxyHandle) AddBackend(payload *models.Backend) (bool, error) {
 		return false, err
 	}
 
-	resp := h.request.Path(url).Post().Body(body).Do(context.TODO())
+	resp := h.newRequest().Path(url).Post().Body(body).Do(context.TODO())
 
 	return handleError(&resp, payload)
 
@@ -105,7 +113,7 @@ func (h *HaproxyHandle) AddBackend(payload *models.Backend) (bool, error) {
 
 func (h *HaproxyHandle) GetBackend(backendName string) models.Backend {
 	url := fmt.Sprintf("%s/%s", BACKEND, url.QueryEscape(backendName))
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	if resp.Err != nil {
 		return models.Backend{}
 	}
@@ -126,7 +134,7 @@ func (h *HaproxyHandle) GetBackend(backendName string) models.Backend {
 
 func (h *HaproxyHandle) GetBackends() models.Backends {
 	url := fmt.Sprintf("%s", BACKEND)
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 
 	if resp.Err != nil {
 		klog.Errorf("Failed to request: %s\n", resp.Err)
@@ -180,7 +188,7 @@ func (h *HaproxyHandle) DeleteBackend(backendName string) bool {
 	klog.V(3).Infof("Opeate delete backend [%s]", backendName)
 	v := h.getVersion()
 	url := fmt.Sprintf("%s/%s?version=%d", BACKEND, url.QueryEscape(backendName), v)
-	resp := h.request.Path(url).Delete().Do(context.TODO())
+	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 	b, _ := handleError(&resp, backendName)
 	return b
 }
@@ -195,7 +203,7 @@ func (h *HaproxyHandle) ReplaceBackend(oldName string, new *models.Backend) (boo
 		klog.Errorf("Failed to json convert Backend marshal: %s\n", body)
 		return false, err
 	}
-	resp := h.request.Path(url).Put().Body(body).Do(context.TODO())
+	resp := h.newRequest().Path(url).Put().Body(body).Do(context.TODO())
 	klog.V(4).Infof("Opeate replace backend [%s] to [%s]", new.Name)
 	return handleError(&resp, new)
 }
@@ -206,7 +214,7 @@ func (h *HaproxyHandle) DeleteFrontend(frontendName string) bool {
 	defer h.mu.Unlock()
 	v := h.getVersion()
 	url := fmt.Sprintf("%s/%s?version=%d", FRONTEND, url.QueryEscape(frontendName), v)
-	resp := h.request.Path(url).Delete().Do(context.TODO())
+	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 	klog.V(3).Infof("Opeate delete frontend [%s]", frontendName)
 	b, _ := handleError(&resp, frontendName)
 	return b
@@ -222,14 +230,14 @@ func (h *HaproxyHandle) AddFrontend(payload *models.Frontend) (bool, error) {
 		klog.Errorf("Failed to json convert Frontend marshal: %s\n", err)
 		return false, err
 	}
-	resp := h.request.Path(url).Body(body).Post().Do(context.TODO())
+	resp := h.newRequest().Path(url).Body(body).Post().Do(context.TODO())
 	klog.V(4).Infof("Opeate add a frontend [%s]", payload.Name)
 	return handleError(&resp, payload)
 }
 
 func (h *HaproxyHandle) GetFrontend(frontendName string) models.Frontend {
 	url := fmt.Sprintf("%s/%s", FRONTEND, url.QueryEscape(frontendName))
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	if resp.Err != nil {
 		return models.Frontend{}
 	}
@@ -253,7 +261,7 @@ func (h *HaproxyHandle) GetFrontend(frontendName string) models.Frontend {
 
 func (h *HaproxyHandle) GetFrontends() models.Frontends {
 	url := fmt.Sprintf("%s", FRONTEND)
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 
 	if resp.Err != nil {
 		klog.Errorf("Failed to request: %s\n", resp.Err)
@@ -286,7 +294,7 @@ func (h *HaproxyHandle) ReplaceFrontend(old, new *models.Frontend) (bool, error)
 		klog.Errorf("Failed to json convert Frontend marshal: %s\n", err)
 		return false, err
 	}
-	resp := h.request.Path(url).Body(body).Post().Do(context.TODO())
+	resp := h.newRequest().Path(url).Body(body).Post().Do(context.TODO())
 	klog.V(4).Infof("Opeate replace frontend [%s] to [%s]", old.Name, new.Name)
 	return handleError(&resp, new)
 }
@@ -303,7 +311,7 @@ func (h *HaproxyHandle) AddServerToBackend(payload *Server, backendName string) 
 		return false, err
 	}
 
-	resp := h.request.Path(url).Body(body).Post().Do(context.TODO())
+	resp := h.newRequest().Path(url).Body(body).Post().Do(context.TODO())
 	return handleError(&resp, payload)
 }
 
@@ -312,7 +320,7 @@ func (h *HaproxyHandle) DeleteServerFromBackend(serverName, backendName string) 
 	defer h.mu.Unlock()
 	v := h.getVersion()
 	url := fmt.Sprintf("%s/%s?parent_type=backend&parent_name=%s&version=%d", SERVER, serverName, url.QueryEscape(backendName), v)
-	resp := h.request.Path(url).Delete().Do(context.TODO())
+	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 
 	return handleError(&resp, serverName)
 }
@@ -327,14 +335,14 @@ func (h *HaproxyHandle) ReplaceServerFromBackend(oldName string, new *Server, ba
 		klog.Errorf("Failed to json convert Backend: %s\n", body)
 		return false, err
 	}
-	resp := h.request.Path(url).Put().Body(body).Do(context.TODO())
+	resp := h.newRequest().Path(url).Put().Body(body).Do(context.TODO())
 	klog.V(4).Infof("Opeate replace server [%s] to [%s_%s%d]", oldName, new.Name, new.Address, new.Port)
 	return handleError(&resp, new)
 }
 
 func (h *HaproxyHandle) GetServers(backendName string) Servers {
 	url := fmt.Sprintf("%s?parent_type=backend&parent_name=%s", SERVER, url.QueryEscape(backendName))
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	if resp.Err != nil {
 		klog.Errorf("Failed to request: %s\n", resp.Err)
 		return Servers{}
@@ -359,7 +367,7 @@ func (h *HaproxyHandle) GetServers(backendName string) Servers {
 
 func (h *HaproxyHandle) GetServer(backendName, srvName string) Server {
 	url := fmt.Sprintf("%s/%s?parent_type=backend&parent_name=%s", SERVER, srvName, url.QueryEscape(backendName))
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	if resp.Err != nil {
 		klog.Errorf("Failed to request: %s\n", resp.Err)
 		return Server{}
@@ -385,14 +393,14 @@ func (h *HaproxyHandle) unbindFrontend(bindName string) (exist bool, err error) 
 	defer h.mu.Unlock()
 	v := h.getVersion()
 	url := fmt.Sprintf("%s?parent_type=frontend&parent_name=%s&version=%d", BIND, url.QueryEscape(bindName), v)
-	resp := h.request.Path(url).Delete().Do(context.TODO())
+	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 	klog.V(4).Infof("Opeate unbind frontend %s", bindName)
 	return handleError(&resp, bindName)
 }
 
 func (h *HaproxyHandle) GetBind(bindName, frontName string) models.Bind {
 	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s", BIND, url.QueryEscape(bindName), url.QueryEscape(frontName))
-	resp := h.request.Path(url).Get().Do(context.TODO())
+	resp := h.newRequest().Path(url).Get().Do(context.TODO())
 	if resp.Err != nil {
 		klog.V(4).Info(resp.Err)
 		return models.Bind{}
@@ -423,7 +431,7 @@ func (h *HaproxyHandle) AddBind(payload *models.Bind, frontendName string) (bool
 		klog.Errorf("Failed to json convert Modes.bind marshal: %s\n", err)
 		return false, err
 	}
-	resp := h.request.Path(url).Post().Body(body).Do(context.TODO())
+	resp := h.newRequest().Path(url).Post().Body(body).Do(context.TODO())
 
 	return handleError(&resp, payload)
 }
@@ -433,7 +441,7 @@ func (h *HaproxyHandle) DeleteBind(bindName, frontendName string) (bool, error) 
 	defer h.mu.Unlock()
 	v := h.getVersion()
 	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s&version=%d", BIND, url.QueryEscape(bindName), url.QueryEscape(frontendName), v)
-	resp := h.request.Path(url).Delete().Do(context.TODO())
+	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 	return handleError(&resp, bindName)
 }
 
@@ -448,7 +456,7 @@ func (h *HaproxyHandle) replaceBind(oldName, frontendName string, new *models.Bi
 		return false, err
 	}
 	klog.V(4).Infof("Opeate replace bind [%s] to [%s]", oldName, new.Name)
-	resp := h.request.Path(url).Put().Body(body).Do(context.TODO())
+	resp := h.newRequest().Path(url).Put().Body(body).Do(context.TODO())
 	return handleError(&resp, new)
 }
 
@@ -476,12 +484,53 @@ func (h *HaproxyHandle) checkPortIsAvailable(protocol string, port int) (status 
 }
 
 func (h *HaproxyHandle) getVersion() int {
-	resp := h.request.Path(VERSION).Get().Do(context.TODO())
+	resp := h.newRequest().Path(VERSION).Get().Do(context.TODO())
 	if resp.Err != nil {
 		return -1
 	}
 	version, _ := strconv.Atoi(strings.TrimSpace(string(resp.Body)))
 	return version
+}
+
+func (h *HaproxyHandle) StartTransaction() (string, error) {
+	v := h.getVersion()
+	url := fmt.Sprintf("%s?version=%d", TRANSACTION, v)
+	resp := h.newRequest().Path(url).Post().Do(context.TODO())
+	if resp.Err != nil {
+		return "", resp.Err
+	}
+	if resp.Code != http.StatusCreated {
+		return "", fmt.Errorf("failed to start transaction: %s", string(resp.Body))
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(resp.Body, &data); err != nil {
+		return "", err
+	}
+	return data["id"].(string), nil
+}
+
+func (h *HaproxyHandle) CommitTransaction(id string) error {
+	url := fmt.Sprintf("%s/%s", TRANSACTION, id)
+	resp := h.newRequest().Path(url).Put().Do(context.TODO())
+	if resp.Err != nil {
+		return resp.Err
+	}
+	if resp.Code != http.StatusAccepted && resp.Code != http.StatusOK {
+		return fmt.Errorf("failed to commit transaction: %s", string(resp.Body))
+	}
+	return nil
+}
+
+func (h *HaproxyHandle) DiscardTransaction(id string) error {
+	url := fmt.Sprintf("%s/%s", TRANSACTION, id)
+	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
+	if resp.Err != nil {
+		return resp.Err
+	}
+	if resp.Code != http.StatusNoContent && resp.Code != http.StatusNotFound {
+		return fmt.Errorf("failed to discard transaction: %s", string(resp.Body))
+	}
+	return nil
 }
 
 // useful links
@@ -603,15 +652,15 @@ func getProcessByName(processName string) bool {
 }
 
 func NewHaproxyHandle(user, password, host string) HaproxyHandle {
-	req := restclient.NewDefaultRequest().BasicAuth(user, password).Host(host)
-	req.AddHeader("Content-Type", "application/json")
 	var addr string
 
 	if addr == "" {
-		addr = "10.0.0.3:5555"
+		addr = "127.0.0.1:5555"
 	}
 	return HaproxyHandle{
 		localAddr: addr,
-		request:   req,
+		host:      host,
+		user:      user,
+		password:  password,
 	}
 }

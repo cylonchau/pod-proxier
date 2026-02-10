@@ -33,4 +33,8 @@ type HaproxyInterface interface {
 	AddBind(payload *models.Bind, frontendName string) (bool, error)
 	AddBackend(payload *models.Backend) (bool, error)
 	AddServerToBackend(payload *Server, backendName string) (bool, error)
+
+	StartTransaction() (string, error)
+	CommitTransaction(id string) error
+	DiscardTransaction(id string) error
 }

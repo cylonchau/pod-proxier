@@ -6,11 +6,12 @@ import (
 )
 
 const (
-	BACKEND  = "/v2/services/haproxy/configuration/backends"
-	FRONTEND = "/v2/services/haproxy/configuration/frontends"
-	SERVER   = "/v2/services/haproxy/configuration/servers"
-	VERSION  = "/v2/services/haproxy/configuration/version"
-	BIND     = "/v2/services/haproxy/configuration/binds"
+	BACKEND     = "/v2/services/haproxy/configuration/backends"
+	FRONTEND    = "/v2/services/haproxy/configuration/frontends"
+	SERVER      = "/v2/services/haproxy/configuration/servers"
+	VERSION     = "/v2/services/haproxy/configuration/version"
+	BIND        = "/v2/services/haproxy/configuration/binds"
+	TRANSACTION = "/v2/services/haproxy/transactions"
 )
 
 type ObjSet struct {

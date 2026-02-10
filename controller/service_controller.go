@@ -148,44 +148,32 @@ func (c *ServiceController) isTargetPortName(portName string) bool {
 
 // 处理Service添加事件
 func (c *ServiceController) handleServiceAdd(obj interface{}) {
-	service := obj.(*corev1.Service)
-
-	if !c.isNamespaceAllowed(service.Namespace) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(err)
 		return
 	}
-
-	klog.V(2).Infof("Service added: %s/%s", service.Namespace, service.Name)
-	c.processService(service)
+	c.queue.Add(key)
 }
 
 // 处理Service更新事件
 func (c *ServiceController) handleServiceUpdate(oldObj, newObj interface{}) {
-	oldService := oldObj.(*corev1.Service)
-	newService := newObj.(*corev1.Service)
-
-	if !c.isNamespaceAllowed(newService.Namespace) {
+	key, err := cache.MetaNamespaceKeyFunc(newObj)
+	if err != nil {
+		utilruntime.HandleError(err)
 		return
 	}
-
-	// 如果ClusterIP或端口发生变化，需要重新处理
-	if oldService.Spec.ClusterIP != newService.Spec.ClusterIP ||
-		!c.compareServicePorts(oldService.Spec.Ports, newService.Spec.Ports) {
-		klog.V(2).Infof("Service updated: %s/%s", newService.Namespace, newService.Name)
-		c.removeServiceMappings(oldService)
-		c.processService(newService)
-	}
+	c.queue.Add(key)
 }
 
 // 处理Service删除事件
 func (c *ServiceController) handleServiceDelete(obj interface{}) {
-	service := obj.(*corev1.Service)
-
-	if !c.isNamespaceAllowed(service.Namespace) {
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(err)
 		return
 	}
-
-	klog.V(2).Infof("Service deleted: %s/%s", service.Namespace, service.Name)
-	c.removeServiceMappings(service)
+	c.queue.Add(key)
 }
 
 // 比较服务端口是否相同
@@ -226,10 +214,18 @@ func (c *ServiceController) processService(service *corev1.Service) {
 			continue
 		}
 
+		// 开启事务
+		txID, err := c.handler.StartTransaction()
+		if err != nil {
+			klog.Errorf("Failed to start transaction for %s: %v", mappingKey, err)
+			continue
+		}
+
 		// 分配端口
 		mappedPort, err := c.allocatePort()
 		if err != nil {
 			klog.Errorf("Failed to allocate port for %s: %v", mappingKey, err)
+			c.handler.DiscardTransaction(txID)
 			continue
 		}
 
@@ -240,6 +236,14 @@ func (c *ServiceController) processService(service *corev1.Service) {
 
 		if err := c.createServiceProxy(service, port, mappedPort, backendName, frontendName, bindName, c.hideBackend); err != nil {
 			klog.Errorf("Failed to create service proxy for %s: %v", mappingKey, err)
+			c.releasePort(mappedPort)
+			c.handler.DiscardTransaction(txID)
+			continue
+		}
+
+		// 提交事务
+		if err := c.handler.CommitTransaction(txID); err != nil {
+			klog.Errorf("Failed to commit transaction for %s: %v", mappingKey, err)
 			c.releasePort(mappedPort)
 			continue
 		}
@@ -264,19 +268,29 @@ func (c *ServiceController) processService(service *corev1.Service) {
 	}
 }
 
-// 移除服务映射
-func (c *ServiceController) removeServiceMappings(service *corev1.Service) {
+// 移除指定服务的所有映射
+func (c *ServiceController) removeServiceMappingsByKey(namespace, name string) {
 	c.listenersLock.Lock()
 	defer c.listenersLock.Unlock()
 
 	var mappingsToDelete []string
-	servicePrefix := fmt.Sprintf("%s/%s/", service.Namespace, service.Name)
+	servicePrefix := fmt.Sprintf("%s/%s/", namespace, name)
 
-	for key, mapping := range c.serviceMappings {
-		mapping = mapping
+	for key := range c.serviceMappings {
 		if strings.HasPrefix(key, servicePrefix) {
 			mappingsToDelete = append(mappingsToDelete, key)
 		}
+	}
+
+	if len(mappingsToDelete) == 0 {
+		return
+	}
+
+	// 开启事务
+	txID, err := c.handler.StartTransaction()
+	if err != nil {
+		klog.Errorf("Failed to start transaction for service removal: %v", err)
+		return
 	}
 
 	for _, key := range mappingsToDelete {
@@ -293,6 +307,110 @@ func (c *ServiceController) removeServiceMappings(service *corev1.Service) {
 		delete(c.serviceMappings, key)
 
 		klog.Infof("Deleted service mapping: %s -> :%d", key, mapping.MappedPort)
+	}
+
+	// 提交事务
+	if err := c.handler.CommitTransaction(txID); err != nil {
+		klog.Errorf("Failed to commit transaction for service removal: %v", err)
+	}
+}
+
+func (c *ServiceController) syncService(key string) error {
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		return err
+	}
+
+	// 获取现有映射
+	c.listenersLock.RLock()
+	existingMappings := make(map[string]*ServiceMapping)
+	servicePrefix := fmt.Sprintf("%s/%s/", namespace, name)
+	for k, v := range c.serviceMappings {
+		if strings.HasPrefix(k, servicePrefix) {
+			existingMappings[k] = v
+		}
+	}
+	c.listenersLock.RUnlock()
+
+	obj, exists, err := c.serviceLister.GetByKey(key)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		if len(existingMappings) > 0 {
+			klog.V(2).Infof("Service %s deleted, cleaning up mappings", key)
+			c.removeServiceMappingsByKey(namespace, name)
+		}
+		return nil
+	}
+
+	service := obj.(*corev1.Service)
+
+	// 检查命名空间和 ClusterIP
+	if !c.isNamespaceAllowed(service.Namespace) || service.Spec.ClusterIP == "" || service.Spec.ClusterIP == "None" {
+		if len(existingMappings) > 0 {
+			klog.V(2).Infof("Service %s no longer qualifies for proxy, cleaning up mappings", key)
+			c.removeServiceMappingsByKey(namespace, name)
+		}
+		return nil
+	}
+
+	// 计算目标端口
+	targetPorts := make(map[string]corev1.ServicePort)
+	for _, p := range service.Spec.Ports {
+		if c.isTargetPortName(p.Name) {
+			targetPorts[p.Name] = p
+		}
+	}
+
+	// 检查是否需要更新
+	needsUpdate := false
+	if len(existingMappings) != len(targetPorts) {
+		needsUpdate = true
+	} else {
+		for portName, port := range targetPorts {
+			mappingKey := fmt.Sprintf("%s/%s/%s", namespace, name, portName)
+			m, ok := existingMappings[mappingKey]
+			if !ok || m.ServicePort != port.Port || m.ClusterIP != service.Spec.ClusterIP {
+				needsUpdate = true
+				break
+			}
+		}
+	}
+
+	if needsUpdate {
+		klog.V(2).Infof("Syncing service %s (needsUpdate=true)", key)
+		c.removeServiceMappingsByKey(namespace, name)
+		c.processService(service)
+	} else {
+		klog.V(3).Infof("Service %s matches existing mappings, skipping", key)
+	}
+
+	return nil
+}
+
+func (c *ServiceController) processNextWorkItem() bool {
+	key, quit := c.queue.Get()
+	if quit {
+		return false
+	}
+	defer c.queue.Done(key)
+
+	err := c.syncService(key.(string))
+	if err == nil {
+		c.queue.Forget(key)
+		return true
+	}
+
+	utilruntime.HandleError(fmt.Errorf("Error syncing service %v: %v", key, err))
+	c.queue.AddRateLimited(key)
+
+	return true
+}
+
+func (c *ServiceController) runWorker() {
+	for c.processNextWorkItem() {
 	}
 }
 
@@ -391,6 +509,9 @@ func (c *ServiceController) Run() {
 		utilruntime.HandleError(fmt.Errorf("service controller sync failed"))
 		return
 	}
+
+	// 启动 worker
+	go wait.Until(c.runWorker, time.Second, c.stopCh)
 
 	klog.Info("Service proxy controller started successfully")
 	<-c.stopCh
