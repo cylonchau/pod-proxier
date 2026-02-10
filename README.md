@@ -15,3 +15,9 @@ Create a pod map
 ```bash
 curl -XPOST "host:3433/api/v1/mapping?pod_name={namespace}/{pod_name}&time=3600"
 ```
+
+## Build to use
+
+```
+docker build --platform linux/amd64 -t proxier:v0.0.7-1.30 .
+```

@@ -15,11 +15,11 @@ type HaproxyInterface interface {
 	// UnbindFrontend unbind address from the frontend
 	unbindFrontend(name string) (exist bool, err error)
 	// DeleteBackend deletes the given Backend by name.
-	DeleteBackend(name string) bool
-	// DeleteBackend deletes the given frontend by name.
-	DeleteFrontend(name string) bool
+	DeleteBackend(name string, txID string) bool
+	// DeleteFrontend deletes the given frontend by name.
+	DeleteFrontend(name string, txID string) bool
 
-	DeleteServerFromBackend(serverName, backendName string) (bool, error)
+	DeleteServerFromBackend(serverName, backendName string, txID string) (bool, error)
 
 	checkPortIsAvailable(protocol string, port int) (status bool)
 
@@ -29,10 +29,10 @@ type HaproxyInterface interface {
 
 	GetServers(backendName string) Servers
 
-	AddFrontend(payload *models.Frontend) (bool, error)
-	AddBind(payload *models.Bind, frontendName string) (bool, error)
-	AddBackend(payload *models.Backend) (bool, error)
-	AddServerToBackend(payload *Server, backendName string) (bool, error)
+	AddFrontend(payload *models.Frontend, txID string) (bool, error)
+	AddBind(payload *models.Bind, frontendName string, txID string) (bool, error)
+	AddBackend(payload *models.Backend, txID string) (bool, error)
+	AddServerToBackend(payload *Server, backendName string, txID string) (bool, error)
 
 	StartTransaction() (string, error)
 	CommitTransaction(id string) error

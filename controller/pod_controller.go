@@ -34,6 +34,32 @@ type server struct {
 	mode       string
 }
 
+type Controller struct {
+	lister     cache.Indexer
+	controller cache.Controller
+	// controller的队列
+	queue         workqueue.RateLimitingInterface
+	handler       haproxy.HaproxyHandle
+	stopCh        chan struct{}
+	listenersLock sync.RWMutex
+	wg            wait.Group
+
+	asyncStopCh        chan struct{}
+	asyncListenersLock sync.RWMutex
+	asyncWg            wait.Group
+	asyncQueue         workqueue.RateLimitingInterface
+
+	// 延迟队列
+	aferqueue      workqueue.RateLimitingInterface
+	controllerAddr string
+	controllerPort int
+
+	// pod spec
+	DefaultMappingPort int
+	JprofilerPortName  string
+	MaxMappingTime     int
+}
+
 func (p *Controller) RunAsyncProcess() {
 	klog.V(2).Info("Start asynchronous processing scheduled mapping.")
 	defer func() {
@@ -63,32 +89,6 @@ func (p *Controller) pop() {
 			p.DefaultMapping()
 		}
 	}
-}
-
-type Controller struct {
-	lister     cache.Indexer
-	controller cache.Controller
-	// controller的队列
-	queue         workqueue.RateLimitingInterface
-	handler       haproxy.HaproxyHandle
-	stopCh        chan struct{}
-	listenersLock sync.RWMutex
-	wg            wait.Group
-
-	asyncStopCh        chan struct{}
-	asyncListenersLock sync.RWMutex
-	asyncWg            wait.Group
-	asyncQueue         workqueue.RateLimitingInterface
-
-	// 延迟队列
-	aferqueue      workqueue.RateLimitingInterface
-	controllerAddr string
-	controllerPort int
-
-	// pod spec
-	DefaultMappingPort int
-	JprofilerPortName  string
-	MaxMappingTime     int
 }
 
 func newController(lister cache.Indexer,
@@ -128,10 +128,10 @@ func (c *Controller) changeProxy(svrInt server) (encounterError error, b bool) {
 	}
 	if len(sIns) > 0 {
 		for _, v := range sIns {
-			b, encounterError = c.handler.ReplaceServerFromBackend(v.Name, newServerIns, BACKEND_PREFIX)
+			b, encounterError = c.handler.ReplaceServerFromBackend(v.Name, newServerIns, BACKEND_PREFIX, "")
 		}
 	} else {
-		b, encounterError = c.handler.AddServerToBackend(newServerIns, BACKEND_PREFIX)
+		b, encounterError = c.handler.AddServerToBackend(newServerIns, BACKEND_PREFIX, "")
 	}
 	return
 }
@@ -149,20 +149,20 @@ func (c *Controller) createProxy() (encounterError error, b bool) {
 		Name:         proxyInts.backendName,
 		Mode:         proxyInts.mode,
 		CheckTimeout: &checkTimeout,
-	})
+	}, "")
 	if encounterError == nil || !strings.Contains(encounterError.Error(), "already exists") {
 		if encounterError == nil {
 			b, encounterError = c.handler.AddFrontend(&models.Frontend{
 				Name:           proxyInts.frontendName,
 				DefaultBackend: proxyInts.backendName,
 				Mode:           proxyInts.mode,
-			})
+			}, "")
 			if encounterError == nil || !strings.Contains(encounterError.Error(), "already exists") {
 				b, encounterError = c.handler.AddBind(&models.Bind{
 					Name:    proxyInts.bindName,
 					Port:    &bindPort,
 					Address: c.controllerAddr,
-				}, proxyInts.frontendName)
+				}, proxyInts.frontendName, "")
 
 				if encounterError == nil {
 					encounterError = c.DefaultMapping()

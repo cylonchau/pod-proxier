@@ -71,7 +71,7 @@ func (h *HaproxyHandle) EnsureBackend(backendName string) bool {
 func (h *HaproxyHandle) EnsureFrontend(frontendName string) bool {
 	url := fmt.Sprintf("%s/%s", FRONTEND, url.QueryEscape(frontendName))
 	resp := h.newRequest().Path(url).Get().Do(context.TODO())
-	klog.V(4).Infof("Opeate query backend %s", frontendName)
+	klog.V(4).Infof("Opeate query frontend %s", frontendName)
 	exist, _ := handleError(&resp, frontendName)
 	return exist
 }
@@ -93,12 +93,19 @@ func (h *HaproxyHandle) ensureOneBind(bindName, frontendName string) (exist bool
 	return handleError(&resp, bindName)
 }
 
+// getVersionOrDefault returns transaction_id=txID if txID is not empty, otherwise version=v
+func (h *HaproxyHandle) getVersionOrTxID(txID string) string {
+	if txID != "" {
+		return fmt.Sprintf("transaction_id=%s", txID)
+	}
+	return fmt.Sprintf("version=%d", h.getVersion())
+}
+
 // backend series
-func (h *HaproxyHandle) AddBackend(payload *models.Backend) (bool, error) {
+func (h *HaproxyHandle) AddBackend(payload *models.Backend, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s?version=%d", BACKEND, v)
+	url := fmt.Sprintf("%s?%s", BACKEND, h.getVersionOrTxID(txID))
 	body, err := json.Marshal(payload)
 	if err != nil {
 		klog.Errorf("Failed to json convert Backend marshal: %s\n", err)
@@ -108,7 +115,6 @@ func (h *HaproxyHandle) AddBackend(payload *models.Backend) (bool, error) {
 	resp := h.newRequest().Path(url).Post().Body(body).Do(context.TODO())
 
 	return handleError(&resp, payload)
-
 }
 
 func (h *HaproxyHandle) GetBackend(backendName string) models.Backend {
@@ -182,49 +188,45 @@ func (h *HaproxyHandle) GetServices() Services {
 	return services
 }
 
-func (h *HaproxyHandle) DeleteBackend(backendName string) bool {
+func (h *HaproxyHandle) DeleteBackend(backendName string, txID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	klog.V(3).Infof("Opeate delete backend [%s]", backendName)
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?version=%d", BACKEND, url.QueryEscape(backendName), v)
+	url := fmt.Sprintf("%s/%s?%s", BACKEND, url.QueryEscape(backendName), h.getVersionOrTxID(txID))
 	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 	b, _ := handleError(&resp, backendName)
 	return b
 }
 
-func (h *HaproxyHandle) ReplaceBackend(oldName string, new *models.Backend) (bool, error) {
+func (h *HaproxyHandle) ReplaceBackend(oldName string, new *models.Backend, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?version=%d", SERVER, url.QueryEscape(oldName), v)
+	url := fmt.Sprintf("%s/%s?%s", BACKEND, url.QueryEscape(oldName), h.getVersionOrTxID(txID))
 	body, err := json.Marshal(new)
 	if err != nil {
 		klog.Errorf("Failed to json convert Backend marshal: %s\n", body)
 		return false, err
 	}
 	resp := h.newRequest().Path(url).Put().Body(body).Do(context.TODO())
-	klog.V(4).Infof("Opeate replace backend [%s] to [%s]", new.Name)
+	klog.V(4).Infof("Opeate replace backend [%s] to [%s]", oldName, new.Name)
 	return handleError(&resp, new)
 }
 
 // frontend series
-func (h *HaproxyHandle) DeleteFrontend(frontendName string) bool {
+func (h *HaproxyHandle) DeleteFrontend(frontendName string, txID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?version=%d", FRONTEND, url.QueryEscape(frontendName), v)
+	url := fmt.Sprintf("%s/%s?%s", FRONTEND, url.QueryEscape(frontendName), h.getVersionOrTxID(txID))
 	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 	klog.V(3).Infof("Opeate delete frontend [%s]", frontendName)
 	b, _ := handleError(&resp, frontendName)
 	return b
 }
 
-func (h *HaproxyHandle) AddFrontend(payload *models.Frontend) (bool, error) {
+func (h *HaproxyHandle) AddFrontend(payload *models.Frontend, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s?version=%d", FRONTEND, v)
+	url := fmt.Sprintf("%s?%s", FRONTEND, h.getVersionOrTxID(txID))
 	body, err := json.Marshal(payload)
 	if err != nil {
 		klog.Errorf("Failed to json convert Frontend marshal: %s\n", err)
@@ -284,11 +286,10 @@ func (h *HaproxyHandle) GetFrontends() models.Frontends {
 	return models.Frontends{}
 }
 
-func (h *HaproxyHandle) ReplaceFrontend(old, new *models.Frontend) (bool, error) {
+func (h *HaproxyHandle) ReplaceFrontend(old, new *models.Frontend, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?version=%d", FRONTEND, url.QueryEscape(old.Name), v)
+	url := fmt.Sprintf("%s/%s?%s", FRONTEND, url.QueryEscape(old.Name), h.getVersionOrTxID(txID))
 	body, err := json.Marshal(new)
 	if err != nil {
 		klog.Errorf("Failed to json convert Frontend marshal: %s\n", err)
@@ -300,11 +301,10 @@ func (h *HaproxyHandle) ReplaceFrontend(old, new *models.Frontend) (bool, error)
 }
 
 // haproxy server operations
-func (h *HaproxyHandle) AddServerToBackend(payload *Server, backendName string) (bool, error) {
+func (h *HaproxyHandle) AddServerToBackend(payload *Server, backendName string, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s?parent_type=backend&parent_name=%s&version=%d", SERVER, url.QueryEscape(backendName), v)
+	url := fmt.Sprintf("%s?parent_type=backend&parent_name=%s&%s", SERVER, url.QueryEscape(backendName), h.getVersionOrTxID(txID))
 	body, err := json.Marshal(payload)
 	if err != nil {
 		klog.Errorf("Failed to json convert Models.Server: %s\n", body)
@@ -315,21 +315,19 @@ func (h *HaproxyHandle) AddServerToBackend(payload *Server, backendName string) 
 	return handleError(&resp, payload)
 }
 
-func (h *HaproxyHandle) DeleteServerFromBackend(serverName, backendName string) (bool, error) {
+func (h *HaproxyHandle) DeleteServerFromBackend(serverName, backendName string, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?parent_type=backend&parent_name=%s&version=%d", SERVER, serverName, url.QueryEscape(backendName), v)
+	url := fmt.Sprintf("%s/%s?parent_type=backend&parent_name=%s&%s", SERVER, url.QueryEscape(serverName), url.QueryEscape(backendName), h.getVersionOrTxID(txID))
 	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 
 	return handleError(&resp, serverName)
 }
 
-func (h *HaproxyHandle) ReplaceServerFromBackend(oldName string, new *Server, backendName string) (bool, error) {
+func (h *HaproxyHandle) ReplaceServerFromBackend(oldName string, new *Server, backendName string, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?parent_type=backend&parent_name=%s&version=%d", SERVER, url.QueryEscape(oldName), url.QueryEscape(backendName), v)
+	url := fmt.Sprintf("%s/%s?parent_type=backend&parent_name=%s&%s", SERVER, url.QueryEscape(oldName), url.QueryEscape(backendName), h.getVersionOrTxID(txID))
 	body, err := json.Marshal(new)
 	if err != nil {
 		klog.Errorf("Failed to json convert Backend: %s\n", body)
@@ -421,11 +419,10 @@ func (h *HaproxyHandle) GetBind(bindName, frontName string) models.Bind {
 	return models.Bind{}
 }
 
-func (h *HaproxyHandle) AddBind(payload *models.Bind, frontendName string) (bool, error) {
+func (h *HaproxyHandle) AddBind(payload *models.Bind, frontendName string, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s?parent_type=frontend&frontend=%s&version=%d", BIND, url.QueryEscape(frontendName), v)
+	url := fmt.Sprintf("%s?parent_type=frontend&frontend=%s&%s", BIND, url.QueryEscape(frontendName), h.getVersionOrTxID(txID))
 	body, err := json.Marshal(payload)
 	if err != nil {
 		klog.Errorf("Failed to json convert Modes.bind marshal: %s\n", err)
@@ -436,20 +433,18 @@ func (h *HaproxyHandle) AddBind(payload *models.Bind, frontendName string) (bool
 	return handleError(&resp, payload)
 }
 
-func (h *HaproxyHandle) DeleteBind(bindName, frontendName string) (bool, error) {
+func (h *HaproxyHandle) DeleteBind(bindName, frontendName string, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s&version=%d", BIND, url.QueryEscape(bindName), url.QueryEscape(frontendName), v)
+	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s&%s", BIND, url.QueryEscape(bindName), url.QueryEscape(frontendName), h.getVersionOrTxID(txID))
 	resp := h.newRequest().Path(url).Delete().Do(context.TODO())
 	return handleError(&resp, bindName)
 }
 
-func (h *HaproxyHandle) replaceBind(oldName, frontendName string, new *models.Bind) (bool, error) {
+func (h *HaproxyHandle) replaceBind(oldName, frontendName string, new *models.Bind, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	v := h.getVersion()
-	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s&version=%d", BIND, url.QueryEscape(oldName), url.QueryEscape(frontendName), v)
+	url := fmt.Sprintf("%s/%s?parent_type=frontend&frontend=%s&%s", BIND, url.QueryEscape(oldName), url.QueryEscape(frontendName), h.getVersionOrTxID(txID))
 	body, err := json.Marshal(new)
 	if err != nil {
 		klog.Errorf("Failed to json convert Models.Bind: %s", body)

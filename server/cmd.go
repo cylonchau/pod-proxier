@@ -3,10 +3,11 @@ package server
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
+
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"io/ioutil"
 	"k8s.io/klog/v2"
 
 	"pod-proxier/controller"
@@ -32,6 +33,7 @@ const (
 	DefaultPortRangeEnd        = 9100
 	DefaultAllowedNamespaces   = "default"
 	DefaultPortName            = "debug"
+	DefaultCheckTimeout        = int64(15)
 )
 
 func init() {
@@ -59,6 +61,7 @@ type PodProxier struct {
 	PortRangeEnd      int
 	PortName          string
 	AllowedNamespaces []string
+	CheckTimeout      int64
 }
 
 func NewOptions() *PodProxier {
@@ -128,6 +131,7 @@ func (o *PodProxier) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.AllowedNamespaces, "allowed-namespaces",
 		[]string{DefaultAllowedNamespaces},
 		"Comma-separated list of allowed namespaces for service proxy.")
+	fs.Int64Var(&o.CheckTimeout, "check-timeout", DefaultCheckTimeout, "Backend health check timeout in seconds.")
 }
 
 func PrintFlags(flags *pflag.FlagSet) {
@@ -204,6 +208,7 @@ func (o *PodProxier) Run() (err error) {
 			o.AllowedNamespaces,
 			[]string{o.PortName},
 			o.ResyncTime,
+			o.CheckTimeout,
 		)
 		go ServiceControllerInterface.Run()
 		klog.Info("V2 Service proxy controller started")
