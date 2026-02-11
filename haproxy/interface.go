@@ -34,6 +34,10 @@ type HaproxyInterface interface {
 	AddBackend(payload *models.Backend, txID string) (bool, error)
 	AddServerToBackend(payload *Server, backendName string, txID string) (bool, error)
 
+	ReplaceBackend(oldName string, new *models.Backend, txID string) (bool, error)
+	ReplaceFrontend(oldName string, new *models.Frontend, txID string) (bool, error)
+	ReplaceServerFromBackend(oldName string, new *Server, backendName string, txID string) (bool, error)
+
 	StartTransaction() (string, error)
 	CommitTransaction(id string) error
 	DiscardTransaction(id string) error

@@ -61,8 +61,9 @@ type ServiceController struct {
 	portAllocations    map[int]bool               // key: port, value: allocated
 	portAllocationLock sync.RWMutex
 
-	checkTimeout int64
-	hideBackend  bool
+	checkTimeout  int64
+	checkInterval int64
+	hideBackend   bool
 
 	clientset *kubernetes.Clientset
 }
@@ -83,6 +84,7 @@ func newServiceController(
 	targetPortNames []string,
 	clientset *kubernetes.Clientset,
 	checkTimeout int64,
+	checkInterval int64,
 ) *ServiceController {
 
 	allowedNsMap := make(map[string]bool)
@@ -111,6 +113,7 @@ func newServiceController(
 		portAllocations:   make(map[int]bool),
 		clientset:         clientset,
 		checkTimeout:      checkTimeout,
+		checkInterval:     checkInterval,
 		hideBackend:       hideBackend,
 	}
 }
@@ -349,21 +352,26 @@ func (c *ServiceController) removeServiceMappings(service *corev1.Service) {
 func (c *ServiceController) createServiceProxy(service *corev1.Service, port corev1.ServicePort, mappedPort int, backendName, frontendName, bindName string, hide bool, txID string) error {
 	bindPortInt64 := int64(mappedPort)
 
-	// 创建Backend (带存在性预检)
-	if !c.handler.EnsureBackend(backendName) {
-		backend_obj := &models.Backend{
-			Name:         backendName,
-			Mode:         "tcp",
-			CheckTimeout: &c.checkTimeout,
-		}
-		if hide {
-			backend_obj.StatsOptions = &models.StatsOptions{StatsEnable: true}
-		}
-		_, err := c.handler.AddBackend(backend_obj, txID)
+	// 创建/更新 Backend
+	checkTimeoutMs := c.checkTimeout * 1000
+	backend_obj := &models.Backend{
+		Name:         backendName,
+		Mode:         "tcp",
+		CheckTimeout: &checkTimeoutMs,
+	}
+	if hide {
+		backend_obj.StatsOptions = &models.StatsOptions{StatsEnable: true}
+	}
 
-		if err != nil && !strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("failed to create backend: %v", err)
-		}
+	var err error
+	if c.handler.EnsureBackend(backendName) {
+		_, err = c.handler.ReplaceBackend(backendName, backend_obj, txID)
+	} else {
+		_, err = c.handler.AddBackend(backend_obj, txID)
+	}
+
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("failed to create/update backend: %v", err)
 	}
 
 	// 添加Service ClusterIP作为backend server
@@ -372,23 +380,36 @@ func (c *ServiceController) createServiceProxy(service *corev1.Service, port cor
 		Name:    serverName,
 		Address: fmt.Sprintf("%s:%d", service.Spec.ClusterIP, port.Port),
 		Check:   "enabled",
+		Inter:   int64(c.checkInterval * 1000), // 转换为毫秒
 	}
-
-	_, err := c.handler.AddServerToBackend(server, backendName, txID)
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		return fmt.Errorf("failed to add server to backend: %v", err)
-	}
-
-	// 创建Frontend (带存在性预检)
-	if !c.handler.EnsureFrontend(frontendName) {
-		_, err = c.handler.AddFrontend(&models.Frontend{
-			Name:           frontendName,
-			DefaultBackend: backendName,
-			Mode:           "tcp",
-		}, txID)
-		if err != nil && !strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("failed to create frontend: %v", err)
+	_, err = c.handler.AddServerToBackend(server, backendName, txID)
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			// 如果已存在，尝试替换以应用新的 Inter 配置
+			_, err = c.handler.ReplaceServerFromBackend(serverName, server, backendName, txID)
+			if err != nil {
+				return fmt.Errorf("failed to update server in backend: %v", err)
+			}
+		} else {
+			return fmt.Errorf("failed to add server to backend: %v", err)
 		}
+	}
+
+	// 创建/更新 Frontend
+	frontend_obj := &models.Frontend{
+		Name:           frontendName,
+		DefaultBackend: backendName,
+		Mode:           "tcp",
+	}
+
+	if c.handler.EnsureFrontend(frontendName) {
+		_, err = c.handler.ReplaceFrontend(frontendName, frontend_obj, txID)
+	} else {
+		_, err = c.handler.AddFrontend(frontend_obj, txID)
+	}
+
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("failed to create/update frontend: %v", err)
 	}
 
 	// 创建Bind
@@ -462,6 +483,7 @@ func RunServiceController(
 	targetPortNames []string,
 	resyncTime int,
 	checkTimeout int64,
+	checkInterval int64,
 ) *ServiceController {
 	var (
 		restConfig *rest.Config
@@ -491,7 +513,7 @@ func RunServiceController(
 		nil, nil, nil, stopCh, listenPort, listenAddr,
 		dataplanHost, dataplanUser, dataplanPassword, hideBackend,
 		portRangeStart, portRangeEnd, allowedNamespaces, targetPortNames, clientset,
-		checkTimeout,
+		checkTimeout, checkInterval,
 	)
 
 	serviceIndexer, serviceControllerInformer := cache.NewIndexerInformer(

@@ -286,17 +286,17 @@ func (h *HaproxyHandle) GetFrontends() models.Frontends {
 	return models.Frontends{}
 }
 
-func (h *HaproxyHandle) ReplaceFrontend(old, new *models.Frontend, txID string) (bool, error) {
+func (h *HaproxyHandle) ReplaceFrontend(oldName string, new *models.Frontend, txID string) (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	url := fmt.Sprintf("%s/%s?%s", FRONTEND, url.QueryEscape(old.Name), h.getVersionOrTxID(txID))
+	url := fmt.Sprintf("%s/%s?%s", FRONTEND, url.QueryEscape(oldName), h.getVersionOrTxID(txID))
 	body, err := json.Marshal(new)
 	if err != nil {
 		klog.Errorf("Failed to json convert Frontend marshal: %s\n", err)
 		return false, err
 	}
-	resp := h.newRequest().Path(url).Body(body).Post().Do(context.TODO())
-	klog.V(4).Infof("Opeate replace frontend [%s] to [%s]", old.Name, new.Name)
+	resp := h.newRequest().Path(url).Body(body).Put().Do(context.TODO())
+	klog.V(4).Infof("Opeate replace frontend [%s] to [%s]", oldName, new.Name)
 	return handleError(&resp, new)
 }
 
