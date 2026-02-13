@@ -35,6 +35,7 @@ const (
 	DefaultPortName            = "debug"
 	DefaultCheckTimeout        = int64(15)
 	DefaultCheckInterval       = int64(2)
+	DefaultMaxBatchSize        = 50
 )
 
 func init() {
@@ -64,6 +65,7 @@ type PodProxier struct {
 	AllowedNamespaces []string
 	CheckTimeout      int64
 	CheckInterval     int64
+	MaxBatchSize      int
 }
 
 func NewOptions() *PodProxier {
@@ -135,6 +137,7 @@ func (o *PodProxier) AddFlags(fs *pflag.FlagSet) {
 		"Comma-separated list of allowed namespaces for service proxy.")
 	fs.Int64Var(&o.CheckTimeout, "check-timeout", DefaultCheckTimeout, "Backend health check timeout in seconds.")
 	fs.Int64Var(&o.CheckInterval, "check-interval", DefaultCheckInterval, "Backend health check interval in seconds.")
+	fs.IntVar(&o.MaxBatchSize, "max-batch-size", DefaultMaxBatchSize, "Max batch size for service updates.")
 }
 
 func PrintFlags(flags *pflag.FlagSet) {
@@ -213,6 +216,7 @@ func (o *PodProxier) Run() (err error) {
 			o.ResyncTime,
 			o.CheckTimeout,
 			o.CheckInterval,
+			o.MaxBatchSize,
 		)
 		go ServiceControllerInterface.Run()
 		klog.Info("V2 Service proxy controller started")

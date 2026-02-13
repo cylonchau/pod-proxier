@@ -51,9 +51,15 @@ spec:
       containers:
         - name: por-proxier-ints
           image: cylonchau/haproxy-debian:2.6.1
+          env:
+            - name: MALLOC_ARENA_MAX
+              value: "2"
+            limits:
+              cpu: "1"
+              memory: 2G
           ports:
-          - containerPort: 8404
-          - containerPort: 5555
+            - containerPort: 8404
+            - containerPort: 5555
           readinessProbe:
             httpGet:
               path: /stats
