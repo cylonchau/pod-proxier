@@ -48,18 +48,20 @@ docker build --platform linux/amd64 -t pod-proxier:latest .
 
 ### Command Line Flags
 
-| Flag | Description | Default |
-| :--- | :--- | :--- |
-| `--kubeconfig` | Path to the kubernetes auth config | `~/.kube/config` |
-| `--enable-v1` | Enable V1 pod proxy functionality | `false` |
-| `--enable-v2` | Enable V2 service proxy functionality | `false` |
-| `--listen-port` | Server internal API port | `3343` |
-| `--api-addr` | HAProxy DataPlaneAPI address | `http://127.0.0.1:5555` |
-| `--default-map-port` | HAProxy public entry port | `8849` |
-| `--port-range-start` | V2 service mapping start port | `9000` |
-| `--port-range-end` | V2 service mapping end port | `9100` |
-| `--allowed-namespaces`| Allowed namespaces for V2 | `default` |
-| `--max-mapping-time` | Max TTL for V1 mapping (seconds) | `10800` |
+| Flag                   | Description                           | Default                 |
+| :--------------------- | :------------------------------------ | :---------------------- |
+| `--kubeconfig`         | Path to the kubernetes auth config    | `~/.kube/config`        |
+| `--enable-v1`          | Enable V1 pod proxy functionality     | `false`                 |
+| `--enable-v2`          | Enable V2 service proxy functionality | `false`                 |
+| `--listen-port`        | Server internal API port              | `3343`                  |
+| `--api-addr`           | HAProxy DataPlaneAPI address          | `http://127.0.0.1:5555` |
+| `--default-map-port`   | HAProxy public entry port             | `8849`                  |
+| `--port-range-start`   | V2 service mapping start port         | `9000`                  |
+| `--port-range-end`     | V2 service mapping end port           | `9100`                  |
+| `--allowed-namespaces` | Allowed namespaces for V2             | `default`               |
+| `--max-mapping-time`   | Max TTL for V1 mapping (seconds)      | `10800`                 |
+| `--check-timeout`      | Health check timeout (seconds)        | `10800`                 |
+| `--off-check`          | Disable health check                  | `false`                 |
 
 ## Usage & API
 

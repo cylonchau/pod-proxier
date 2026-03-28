@@ -65,6 +65,7 @@ type ServiceController struct {
 	checkInterval int64
 	hideBackend   bool
 	maxBatchSize  int
+	isOffCheck    bool
 
 	clientset *kubernetes.Clientset
 }
@@ -86,6 +87,7 @@ func newServiceController(
 	clientset *kubernetes.Clientset,
 	checkTimeout int64,
 	checkInterval int64,
+	isOffCheck bool,
 	maxBatchSize int,
 ) *ServiceController {
 
@@ -118,6 +120,7 @@ func newServiceController(
 		checkInterval:     checkInterval,
 		hideBackend:       hideBackend,
 		maxBatchSize:      maxBatchSize,
+		isOffCheck:        isOffCheck,
 	}
 }
 
@@ -416,10 +419,15 @@ func (c *ServiceController) createServiceProxy(service *corev1.Service, port cor
 	// 创建/更新 Backend
 	checkTimeoutMs := c.checkTimeout * 1000
 	backend_obj := &models.Backend{
-		Name:         backendName,
-		Mode:         "tcp",
-		CheckTimeout: &checkTimeoutMs,
+		Name: backendName,
+		Mode: "tcp",
 	}
+
+	if c.isOffCheck == false {
+		backend_obj.CheckTimeout = &checkTimeoutMs
+	} else {
+	}
+
 	if hide {
 		backend_obj.StatsOptions = &models.StatsOptions{StatsEnable: true}
 	}
@@ -440,9 +448,15 @@ func (c *ServiceController) createServiceProxy(service *corev1.Service, port cor
 	server := &haproxy.Server{
 		Name:    serverName,
 		Address: fmt.Sprintf("%s:%d", service.Spec.ClusterIP, port.Port),
-		Check:   "enabled",
-		Inter:   int64(c.checkInterval * 1000), // 转换为毫秒
 	}
+
+	if c.isOffCheck == false {
+		server.Check = "enabled"
+		server.Inter = int64(c.checkInterval * 1000) // 转换为毫秒
+	} else {
+		server.Check = "disabled"
+	}
+
 	_, err = c.handler.AddServerToBackend(server, backendName, txID)
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") {
@@ -527,6 +541,7 @@ func RunServiceController(
 	resyncTime int,
 	checkTimeout int64,
 	checkInterval int64,
+	isOffCheck bool,
 	maxBatchSize int,
 ) *ServiceController {
 	var (
@@ -558,7 +573,7 @@ func RunServiceController(
 		nil, nil, queue, stopCh, listenPort, listenAddr,
 		dataplanHost, dataplanUser, dataplanPassword, hideBackend,
 		portRangeStart, portRangeEnd, allowedNamespaces, targetPortNames, clientset,
-		checkTimeout, checkInterval, maxBatchSize,
+		checkTimeout, checkInterval, isOffCheck, maxBatchSize,
 	)
 
 	serviceIndexer, serviceControllerInformer := cache.NewIndexerInformer(

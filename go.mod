@@ -57,7 +57,6 @@ require (
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/cylonchau/gorest v0.4.0
 	github.com/gin-gonic/gin v1.9.1
-	github.com/haproxytech/models v1.2.4
 	github.com/haproxytech/models/v2 v2.2.0
 	github.com/json-iterator/go v1.1.12
 	github.com/shirou/gopsutil/v3 v3.23.10
