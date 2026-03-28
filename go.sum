@@ -48,7 +48,6 @@ github.com/go-openapi/analysis v0.24.0 h1:vE/VFFkICKyYuTWYnplQ+aVr45vlG6NcZKC7Bd
 github.com/go-openapi/analysis v0.24.0/go.mod h1:GLyoJA+bvmGGaHgpfeDh8ldpGo69fAJg7eeMDMRCIrw=
 github.com/go-openapi/errors v0.17.0/go.mod h1:LcZQpmvG4wyF5j4IhA73wkLFQg+QJXOQHVjmcZxhka0=
 github.com/go-openapi/errors v0.18.0/go.mod h1:LcZQpmvG4wyF5j4IhA73wkLFQg+QJXOQHVjmcZxhka0=
-github.com/go-openapi/errors v0.19.0/go.mod h1:LcZQpmvG4wyF5j4IhA73wkLFQg+QJXOQHVjmcZxhka0=
 github.com/go-openapi/errors v0.19.2/go.mod h1:qX0BLWsyaKfvhluLejVpVNwNRdXZhEbTA4kxxpKBC94=
 github.com/go-openapi/errors v0.19.4/go.mod h1:qX0BLWsyaKfvhluLejVpVNwNRdXZhEbTA4kxxpKBC94=
 github.com/go-openapi/errors v0.22.3 h1:k6Hxa5Jg1TUyZnOwV2Lh81j8ayNw5VVYLvKrp4zFKFs=
@@ -90,7 +89,6 @@ github.com/go-openapi/strfmt v0.24.0 h1:dDsopqbI3wrrlIzeXRbqMihRNnjzGC+ez4NQaAAJ
 github.com/go-openapi/strfmt v0.24.0/go.mod h1:Lnn1Bk9rZjXxU9VMADbEEOo7D7CDyKGLsSKekhFr7s4=
 github.com/go-openapi/swag v0.17.0/go.mod h1:AByQ+nYG6gQg71GINrmuDXCPWdL640yX49/kXLo40Tg=
 github.com/go-openapi/swag v0.18.0/go.mod h1:AByQ+nYG6gQg71GINrmuDXCPWdL640yX49/kXLo40Tg=
-github.com/go-openapi/swag v0.19.0/go.mod h1:AByQ+nYG6gQg71GINrmuDXCPWdL640yX49/kXLo40Tg=
 github.com/go-openapi/swag v0.19.2/go.mod h1:POnQmlKehdgb5mhVOsnJFsivZCEZ/vjK9gh66Z9tfKk=
 github.com/go-openapi/swag v0.19.5/go.mod h1:POnQmlKehdgb5mhVOsnJFsivZCEZ/vjK9gh66Z9tfKk=
 github.com/go-openapi/swag v0.19.9/go.mod h1:ao+8BpOPyKdpQz3AOJfbeEVpLmWAvlT1IfTe5McPyhY=
@@ -121,7 +119,6 @@ github.com/go-openapi/swag/typeutils v0.25.1/go.mod h1:9McMC/oCdS4BKwk2shEB7x17P
 github.com/go-openapi/swag/yamlutils v0.25.1 h1:mry5ez8joJwzvMbaTGLhw8pXUnhDK91oSJLDPF1bmGk=
 github.com/go-openapi/swag/yamlutils v0.25.1/go.mod h1:cm9ywbzncy3y6uPm/97ysW8+wZ09qsks+9RS8fLWKqg=
 github.com/go-openapi/validate v0.18.0/go.mod h1:Uh4HdOzKt19xGIGm1qHf/ofbX1YQ4Y+MYsct2VUrAJ4=
-github.com/go-openapi/validate v0.19.0/go.mod h1:Uh4HdOzKt19xGIGm1qHf/ofbX1YQ4Y+MYsct2VUrAJ4=
 github.com/go-openapi/validate v0.19.2/go.mod h1:1tRCw7m3jtI8eNWEEliiAqUIcBztB2KDnRCRMUi7GTA=
 github.com/go-openapi/validate v0.19.8/go.mod h1:8DJv2CVJQ6kGNpFW6eV9N3JviE1C85nY1c2z52x1Gk4=
 github.com/go-openapi/validate v0.25.0 h1:JD9eGX81hDTjoY3WOzh6WqxVBVl7xjsLnvDo1GL5WPU=
@@ -162,8 +159,6 @@ github.com/google/uuid v1.0.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/google/uuid v1.1.1/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/haproxytech/models v1.2.4 h1:KYWMzEVVRxAPI6F64xF6oISY10TGm6VWvo/T2rXp4x4=
-github.com/haproxytech/models v1.2.4/go.mod h1:UXZVErm/XN6z10sM/enmxrdeEnwo7vz1JI+a8ycEvOQ=
 github.com/haproxytech/models/v2 v2.2.0 h1:2eBxpioPujHsZ0lMI6IN61V3PfcoNjy254FKnBk4NHs=
 github.com/haproxytech/models/v2 v2.2.0/go.mod h1:HjM8x+j1/j4nHUA5lqh159OPZ3zQ5iGz13vHo9xeEk0=
 github.com/imdario/mergo v0.3.6 h1:xTNEAn+kxVO7dTZGu0CegyqKZmoWFI0rF8UxjlB2d28=

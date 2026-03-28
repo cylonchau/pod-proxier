@@ -36,6 +36,7 @@ const (
 	DefaultCheckTimeout        = int64(15)
 	DefaultCheckInterval       = int64(2)
 	DefaultMaxBatchSize        = 50
+	DefaultHealthCheck         = false
 )
 
 func init() {
@@ -56,16 +57,17 @@ type PodProxier struct {
 	ResyncTime          int
 
 	// V2 功能参数
-	EnableV1          bool
-	EnableV2          bool
-	HideBackend       bool
-	PortRangeStart    int
-	PortRangeEnd      int
-	PortName          string
-	AllowedNamespaces []string
-	CheckTimeout      int64
-	CheckInterval     int64
-	MaxBatchSize      int
+	EnableV1           bool
+	EnableV2           bool
+	HideBackend        bool
+	PortRangeStart     int
+	PortRangeEnd       int
+	PortName           string
+	AllowedNamespaces  []string
+	CheckTimeout       int64
+	CheckInterval      int64
+	MaxBatchSize       int
+	DefaultHealthCheck bool
 }
 
 func NewOptions() *PodProxier {
@@ -138,6 +140,8 @@ func (o *PodProxier) AddFlags(fs *pflag.FlagSet) {
 	fs.Int64Var(&o.CheckTimeout, "check-timeout", DefaultCheckTimeout, "Backend health check timeout in seconds.")
 	fs.Int64Var(&o.CheckInterval, "check-interval", DefaultCheckInterval, "Backend health check interval in seconds.")
 	fs.IntVar(&o.MaxBatchSize, "max-batch-size", DefaultMaxBatchSize, "Max batch size for service updates.")
+	fs.BoolVar(&o.DefaultHealthCheck, "off-check", DefaultHealthCheck, "If specified, haproxy will off health check.")
+
 }
 
 func PrintFlags(flags *pflag.FlagSet) {
@@ -216,6 +220,7 @@ func (o *PodProxier) Run() (err error) {
 			o.ResyncTime,
 			o.CheckTimeout,
 			o.CheckInterval,
+			o.DefaultHealthCheck,
 			o.MaxBatchSize,
 		)
 		go ServiceControllerInterface.Run()

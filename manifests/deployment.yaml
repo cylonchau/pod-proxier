@@ -85,12 +85,13 @@ spec:
             - "-c"
             - |
               sleep 30 &&
-              /apps/pod-proxier-gateway
-              --v 5
-              --jprofiler-port-name=test
-              --default-map-port=8848
-              --jprofiler-port-name=jprofiler
-              --resync-time=60
+              /apps/pod-proxier-gateway \
+              --v 5 \
+              --jprofiler-port-name=test \
+              --default-map-port=8848 \
+              --jprofiler-port-name=jprofiler \
+              --resync-time=60 \
+              --max-batch-size=50
           readinessProbe:
             httpGet:
               path: /health
