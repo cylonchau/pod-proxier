@@ -6,12 +6,14 @@ hostNetwork: true
 logLevel: 5
 
 images:
-  podProxierInts:
+  haproxy:
     repository: cylonchau/haproxy-debian
-    tag: v2.6.1
+    # Quote numeric tags, e.g. "20260707", to avoid YAML parsing them as numbers.
+    tag: 2.7.1
     pullPolicy: IfNotPresent
   podProxier:
     repository: cylonchau/pod-proxier
+    # Quote numeric tags, e.g. "20260707", to avoid YAML parsing them as numbers.
     tag: 0.5
     pullPolicy: IfNotPresent
 
@@ -20,12 +22,12 @@ ports:
   dataPlanPort: 5555
   entryPort: 8849
   podProxierPort: 3343
-  defaultMapPort: 8848
+  defaultMapPort: 8849
   # Only this pod's port name can be proxied
   jprofilerPortName: jprofiler-port
 
 probes:
-  podProxierInts:
+  haproxy:
     readiness:
       path: /stats
       port: 8404
@@ -49,7 +51,24 @@ probes:
       periodSeconds: 60
 
 podProxier:
+  # At least one of enableV1 or enableV2 must be true.
+  enableV1: true
+  enableV2: true
+  apiAddr: http://127.0.0.1:5555
+  apiUser: admin
+  apiPassword: 1fc917c7ad66487470e466c0ad40ddd45b9f7730a4b43e1b2542627f0596bbdc
   resyncTime: 600
+  maxMappingTime: 10800
+  portName: debug
+  portRangeStart: 9000
+  portRangeEnd: 9100
+  allowedNamespaces:
+    - default
+  hideBackend: true
+  checkTimeout: 15
+  checkInterval: 2
+  maxBatchSize: 50
+  offCheck: false
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
@@ -61,11 +80,11 @@ clusterRoleBinding: pod-proxier-rolebinding
 service:
   enabled: false
   type: LoadBalancer
+  # Required when type is LoadBalancer. Supported values: aws, gcp
+  cloudProvider: ""
   # Specify external IPs for on-premises clusters, e.g., ["192.168.1.100"]
   externalIPs: []
-  # Add cloud-specific annotations,
-  # e.g., {"service.beta.kubernetes.io/aws-load-balancer-type": "nlb"} for aws
-  # e.g., {"cloud.google.com/load-balancer-type": "Internal"} for gcp
+  # Add custom annotations. LoadBalancer cloud annotations are generated from cloudProvider.
   annotations: {}
   ports:
     admin:
@@ -78,6 +97,11 @@ service:
       targetPort: 8849
       protocol: TCP
       name: entry-port
+    dataPlan:
+      port: 5555
+      targetPort: 5555
+      protocol: TCP
+      name: data-plan-port
     podProxier:
       port: 3343
       targetPort: 3343

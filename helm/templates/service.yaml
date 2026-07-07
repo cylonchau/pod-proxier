@@ -1,12 +1,27 @@
 {{- if .Values.service.enabled }}
+{{- $serviceType := lower .Values.service.type }}
+{{- $cloudProvider := lower .Values.service.cloudProvider }}
+{{- $annotations := dict }}
+{{- range $key, $value := .Values.service.annotations }}
+{{- $_ := set $annotations $key $value }}
+{{- end }}
+{{- if eq $serviceType "loadbalancer" }}
+{{- if eq $cloudProvider "aws" }}
+{{- $_ := set $annotations "service.beta.kubernetes.io/aws-load-balancer-type" "nlb" }}
+{{- else if eq $cloudProvider "gcp" }}
+{{- $_ := set $annotations "cloud.google.com/load-balancer-type" "Internal" }}
+{{- else }}
+{{- fail "service.cloudProvider must be set to one of: aws, gcp when service.type is LoadBalancer" }}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
   name: pod-proxier
   namespace: {{ .Values.namespace }}
-  {{- if .Values.service.annotations }}
+  {{- if $annotations }}
   annotations:
-    {{- toYaml .Values.service.annotations | nindent 4 }}
+    {{- toYaml $annotations | nindent 4 }}
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
@@ -23,6 +38,10 @@ spec:
       targetPort: {{ .Values.service.ports.entry.targetPort }}
       protocol: {{ .Values.service.ports.entry.protocol }}
       name: {{ .Values.service.ports.entry.name }}
+    - port: {{ .Values.service.ports.dataPlan.port }}
+      targetPort: {{ .Values.service.ports.dataPlan.targetPort }}
+      protocol: {{ .Values.service.ports.dataPlan.protocol }}
+      name: {{ .Values.service.ports.dataPlan.name }}
     - port: {{ .Values.service.ports.podProxier.port }}
       targetPort: {{ .Values.service.ports.podProxier.targetPort }}
       protocol: {{ .Values.service.ports.podProxier.protocol }}

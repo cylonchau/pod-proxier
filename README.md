@@ -17,9 +17,88 @@
 
 ### Using Helm
 
+Install with both V1 and V2 enabled:
+
 ```bash
-cd helm && helm upgrade pod-proxier -n infra --install .
+helm upgrade pod-proxier ./helm \
+  --install \
+  --namespace infra \
+  --create-namespace \
+  --set podProxier.enableV1=true \
+  --set podProxier.enableV2=true
 ```
+
+Install V1 only:
+
+```bash
+helm upgrade pod-proxier ./helm \
+  --install \
+  --namespace infra \
+  --create-namespace \
+  --set podProxier.enableV1=true \
+  --set podProxier.enableV2=false \
+  --set ports.defaultMapPort=8849 \
+  --set ports.jprofilerPortName=jprofiler-port
+```
+
+V1 exposes one fixed HAProxy entry port. Traffic flows from `NodeIP:8849` to the selected Pod IP and the Pod container port whose name matches `ports.jprofilerPortName`.
+
+Install V2 only:
+
+```bash
+helm upgrade pod-proxier ./helm \
+  --install \
+  --namespace infra \
+  --create-namespace \
+  --set podProxier.enableV1=false \
+  --set podProxier.enableV2=true \
+  --set podProxier.portName=debug \
+  --set podProxier.portRangeStart=9000 \
+  --set podProxier.portRangeEnd=9100 \
+  --set podProxier.allowedNamespaces[0]=default
+```
+
+V2 discovers Services in `podProxier.allowedNamespaces` and maps matching Service ports to the configured port range.
+
+Enable a cloud LoadBalancer Service by setting `service.enabled=true`, `service.type=LoadBalancer`, and `service.cloudProvider`.
+
+AWS NLB:
+
+```bash
+helm upgrade pod-proxier ./helm \
+  --install \
+  --namespace infra \
+  --create-namespace \
+  --set service.enabled=true \
+  --set service.type=LoadBalancer \
+  --set service.cloudProvider=aws
+```
+
+This automatically adds:
+
+```yaml
+service.beta.kubernetes.io/aws-load-balancer-type: nlb
+```
+
+GCP internal LoadBalancer:
+
+```bash
+helm upgrade pod-proxier ./helm \
+  --install \
+  --namespace infra \
+  --create-namespace \
+  --set service.enabled=true \
+  --set service.type=LoadBalancer \
+  --set service.cloudProvider=gcp
+```
+
+This automatically adds:
+
+```yaml
+cloud.google.com/load-balancer-type: Internal
+```
+
+When `service.type=LoadBalancer`, `service.cloudProvider` must be one of `aws` or `gcp`. Extra annotations can still be added with `service.annotations`.
 
 ### Build from Source
 

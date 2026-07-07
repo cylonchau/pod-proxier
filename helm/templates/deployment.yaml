@@ -1,3 +1,8 @@
+{{- if not (or .Values.podProxier.enableV1 .Values.podProxier.enableV2) }}
+{{- fail "at least one of podProxier.enableV1 or podProxier.enableV2 must be true" }}
+{{- end }}
+{{- $haproxyTag := .Values.images.haproxy.tag }}
+{{- $podProxierTag := .Values.images.podProxier.tag }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,15 +20,15 @@ spec:
       labels:
         app: pod-proxier
     spec:
-      serviceAccountName: {{ .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount }}
       hostNetwork: {{ .Values.hostNetwork }}
       {{- if .Values.nodeName }}
       nodeName: {{ .Values.nodeName }}
       {{- end }}
       containers:
-        - name: pod-proxier-ints
-          image: {{ .Values.images.podProxierInts.repository }}:{{ .Values.images.podProxierInts.tag }}
-          imagePullPolicy: {{ .Values.images.podProxierInts.pullPolicy }}
+        - name: haproxy
+          image: "{{ .Values.images.haproxy.repository }}:{{ if kindIs "float64" $haproxyTag }}{{ printf "%.0f" $haproxyTag }}{{ else }}{{ $haproxyTag }}{{ end }}"
+          imagePullPolicy: {{ .Values.images.haproxy.pullPolicy }}
           ports:
             - containerPort: {{ .Values.ports.adminPort }}
               hostPort: {{ .Values.ports.adminPort }}
@@ -38,18 +43,18 @@ spec:
               protocol: TCP
           readinessProbe:
             httpGet:
-              path: {{ .Values.probes.podProxierInts.readiness.path }}
-              port: {{ .Values.probes.podProxierInts.readiness.port }}
-            initialDelaySeconds: {{ .Values.probes.podProxierInts.readiness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.podProxierInts.readiness.periodSeconds }}
+              path: {{ .Values.probes.haproxy.readiness.path }}
+              port: {{ .Values.probes.haproxy.readiness.port }}
+            initialDelaySeconds: {{ .Values.probes.haproxy.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.haproxy.readiness.periodSeconds }}
           livenessProbe:
             httpGet:
-              path: {{ .Values.probes.podProxierInts.liveness.path }}
-              port: {{ .Values.probes.podProxierInts.liveness.port }}
-            initialDelaySeconds: {{ .Values.probes.podProxierInts.liveness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.podProxierInts.liveness.periodSeconds }}
+              path: {{ .Values.probes.haproxy.liveness.path }}
+              port: {{ .Values.probes.haproxy.liveness.port }}
+            initialDelaySeconds: {{ .Values.probes.haproxy.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.haproxy.liveness.periodSeconds }}
         - name: pod-proxier
-          image: {{ .Values.images.podProxier.repository }}:{{ .Values.images.podProxier.tag }}
+          image: "{{ .Values.images.podProxier.repository }}:{{ if kindIs "float64" $podProxierTag }}{{ printf "%.0f" $podProxierTag }}{{ else }}{{ $podProxierTag }}{{ end }}"
           imagePullPolicy: {{ .Values.images.podProxier.pullPolicy }}
           ports:
             - containerPort: {{ .Values.ports.podProxierPort }}
@@ -61,13 +66,28 @@ spec:
             - "-c"
             - |
               sleep 15 &&
-              /apps/pod-proxier-gateway
-              -v {{ .Values.logLevel }}
-              --listen-port={{ .Values.ports.podProxierPort }}
-              --listen-address=0.0.0.0
-              --default-map-port={{ .Values.ports.defaultMapPort }}
-              --jprofiler-port-name={{ .Values.ports.jprofilerPortName }}
-              --resync-time={{ .Values.podProxier.resyncTime }}
+              /apps/pod-proxier-gateway \
+              -v {{ .Values.logLevel }} \
+              --listen-port={{ .Values.ports.podProxierPort }} \
+              --listen-addr=0.0.0.0 \
+              --api-addr={{ .Values.podProxier.apiAddr }} \
+              --api-user={{ .Values.podProxier.apiUser }} \
+              --api-password={{ .Values.podProxier.apiPassword }} \
+              --resync-time={{ .Values.podProxier.resyncTime }} \
+              --enable-v1={{ .Values.podProxier.enableV1 }} \
+              --enable-v2={{ .Values.podProxier.enableV2 }}{{- if .Values.podProxier.enableV1 }} \
+              --default-map-port={{ .Values.ports.defaultMapPort }} \
+              --jprofiler-port-name={{ .Values.ports.jprofilerPortName }} \
+              --max-mapping-time={{ .Values.podProxier.maxMappingTime }}{{- end }}{{- if .Values.podProxier.enableV2 }} \
+              --port-name={{ .Values.podProxier.portName }} \
+              --port-range-start={{ .Values.podProxier.portRangeStart }} \
+              --port-range-end={{ .Values.podProxier.portRangeEnd }} \
+              --allowed-namespaces={{ join "," .Values.podProxier.allowedNamespaces }} \
+              --check-timeout={{ .Values.podProxier.checkTimeout }} \
+              --check-interval={{ .Values.podProxier.checkInterval }} \
+              --max-batch-size={{ .Values.podProxier.maxBatchSize }} \
+              --hide-backend={{ .Values.podProxier.hideBackend }} \
+              --off-check={{ .Values.podProxier.offCheck }}{{- end }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.podProxier.readiness.path }}

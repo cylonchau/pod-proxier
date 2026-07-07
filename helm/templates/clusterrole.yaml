@@ -3,6 +3,13 @@ kind: ClusterRole
 metadata:
   name: {{ .Values.clusterRole }}
 rules:
+  {{- if .Values.podProxier.enableV1 }}
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "watch", "list"]
+  {{- end }}
+  {{- if .Values.podProxier.enableV2 }}
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "watch", "list"]
+  {{- end }}
